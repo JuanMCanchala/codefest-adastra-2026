@@ -10,14 +10,20 @@ que es admisible y se debe:
   3. justificar la arquitectura encoder en el informe tecnico.
 
 Si el jurado lo veta -> rerank.enabled=false y quedamos con fusion RRF pura.
+
+Implementacion: usamos sentence-transformers CrossEncoder (tokenizer fast,
+robusto) en vez de FlagEmbedding.FlagReranker, que en estas versiones falla con
+'XLMRobertaTokenizer has no attribute prepare_for_model'. Es el mismo modelo
+(BAAI/bge-reranker-v2-m3), solo cambia el cargador.
 """
 from __future__ import annotations
 
 
 class CrossEncoderReranker:
-    def __init__(self, model_id: str = "BAAI/bge-reranker-v2-m3", device: str = "cuda", use_fp16: bool = True):
-        from FlagEmbedding import FlagReranker  # import diferido
-        self.model = FlagReranker(model_id, use_fp16=use_fp16, device=device)
+    def __init__(self, model_id: str = "BAAI/bge-reranker-v2-m3", device: str = "auto", use_fp16: bool = True):
+        from sentence_transformers import CrossEncoder  # import diferido
+        from ..encoding.encoders import resolve_device
+        self.model = CrossEncoder(model_id, device=resolve_device(device))
 
     def rerank(
         self,
@@ -25,13 +31,15 @@ class CrossEncoderReranker:
         candidates: list[tuple[str, str]],   # [(item_id, text), ...]
         top_k: int | None = None,
     ) -> list[tuple[str, float]]:
-        """Devuelve [(item_id, score)] reordenado por relevancia del cross-encoder."""
+        """Devuelve [(item_id, score)] reordenado por relevancia del cross-encoder.
+
+        El score es un logit de relevancia (monotono); apply_softmax=False para
+        rankear por magnitud cruda, que es lo que importa para el orden.
+        """
         if not candidates:
             return []
-        pairs = [[query, text] for _id, text in candidates]
-        scores = self.model.compute_score(pairs, normalize=True)
-        if not isinstance(scores, list):
-            scores = [scores]
+        pairs = [(query, text) for _id, text in candidates]
+        scores = self.model.predict(pairs, show_progress_bar=False)
         ranked = sorted(
             ((cid, float(s)) for (cid, _t), s in zip(candidates, scores)),
             key=lambda kv: kv[1],

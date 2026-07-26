@@ -1,0 +1,70 @@
+# Config multi-encoder + reranker: mide el salto de NDCG de fusionar dos
+# espacios vectoriales (BGE-M3 + E5) y de un cross-encoder por encima.
+# index_max_tokens=96 fue el ganador del barrido inicial (balance NDCG/F1).
+
+seed: 42
+
+paths:
+  corpus_raw: "data/proxy"
+  processed: "data/processed"
+  entrega: "entrega_multi"
+  queries: "eval_interno/queries_smoke.jsonl"
+  resultados: "entrega_multi/resultados.jsonl"
+
+extraction:
+  pdf_backend: "pymupdf"
+  ocr_enabled: false
+  ocr_langs: ["es", "en", "pt"]
+
+cleaning:
+  fix_encoding: true
+  detect_language: false
+  drop_boilerplate: true
+  min_chunk_chars: 20
+
+chunking:
+  strategy: "sentence_window"
+  index_max_tokens: 96
+  overlap_sentences: 1
+  output_max_words: 250
+  respect_sentences: true
+
+encoders:
+  - name: "bge-m3"
+    model_id: "BAAI/bge-m3"
+    weight: 1.0
+    normalize: true
+    use_dense: true
+    use_sparse: false
+    use_colbert: false
+  - name: "e5-large"
+    model_id: "intfloat/multilingual-e5-large"
+    weight: 0.8
+    normalize: true
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+
+faiss:
+  index_type: "IndexFlatIP"
+
+retrieval:
+  top_k_faiss: 20
+  fusion: "rrf"
+  rrf_k: 60
+  final_fragments: 10
+  final_documents: 3
+
+rerank:
+  enabled: true
+  model_id: "BAAI/bge-reranker-v2-m3"
+  top_k_candidates: 20
+
+aggregation:
+  method: "weighted_mean"
+  k_chunks: 20
+
+graph:
+  enabled: false
+  ner_model: "urchade/gliner_multi-v2.1"
+  entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
+  fuse_into_retrieval: false
