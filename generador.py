@@ -1,0 +1,100 @@
+"""generador.py - Entregable 4 del reto.
+
+Usa el indice FAISS, lee el archivo de consultas y genera resultados.jsonl.
+Objetivo: REPRODUCIR los resultados (spec: si no se reproducen, se excluye).
+
+Uso:
+    python generador.py --config config.yaml \
+        --queries data/queries.jsonl \
+        --out entrega/resultados.jsonl
+
+Determinismo: semillas fijas + orden de consultas q001..q050. Los encoders y el
+indice FAISS producen los mismos vectores/rankings dada la misma entrada.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import random
+from pathlib import Path
+
+import yaml
+
+from src.utils.io import read_jsonl, write_jsonl
+from src.schema import validate_resultados
+
+
+def set_determinism(seed: int) -> None:
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    try:
+        import numpy as np
+        np.random.seed(seed)
+    except ImportError:
+        pass
+    try:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except ImportError:
+        pass
+
+
+def load_pipeline(cfg: dict):
+    """Carga stores + encoders (+ reranker) segun config. Import diferido de ML."""
+    from src.encoding.index import VectorStore
+    from src.encoding.encoders import build_encoder, resolve_device
+    from src.retrieval.pipeline import Retriever
+
+    device = resolve_device("auto")
+    base = Path(cfg["paths"]["entrega"]) / "base_vectorial"
+    stores, encoders = {}, {}
+    for enc_cfg in cfg["encoders"]:
+        name = enc_cfg["name"]
+        stores[name] = VectorStore.load(base / f"encoder_{name}")
+        encoders[name] = build_encoder(enc_cfg, device=device)
+
+    reranker = None
+    if cfg["rerank"]["enabled"]:
+        from src.retrieval.rerank import CrossEncoderReranker
+        reranker = CrossEncoderReranker(cfg["rerank"]["model_id"], device=device)
+
+    return Retriever(stores=stores, encoders=encoders, cfg=cfg, reranker=reranker)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Genera resultados.jsonl del reto")
+    ap.add_argument("--config", default="config.yaml")
+    ap.add_argument("--queries", default=None)
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args()
+
+    cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
+    set_determinism(cfg.get("seed", 42))
+
+    queries_path = args.queries or cfg["paths"]["queries"]
+    out_path = args.out or cfg["paths"]["resultados"]
+
+    queries = read_jsonl(queries_path)  # [{query_id, text}, ...]
+    retriever = load_pipeline(cfg)
+
+    results = []
+    for q in queries:
+        qr = retriever.retrieve(q["query_id"], q["text"])
+        results.append(qr.to_json())
+
+    # Validacion estricta antes de escribir (spec 9.3.2)
+    errors = validate_resultados(results, expected_lines=len(queries))
+    if errors:
+        print(f"[ADVERTENCIA] {len(errors)} problemas de esquema:")
+        for e in errors[:20]:
+            print("  -", e)
+
+    n = write_jsonl(out_path, results)
+    print(f"[OK] {n} lineas escritas en {out_path}")
+
+
+if __name__ == "__main__":
+    main()

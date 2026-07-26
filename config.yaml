@@ -1,0 +1,80 @@
+# =============================================================================
+#  Configuracion unica del pipeline. Todos los hiperparametros del barrido
+#  viven aqui para que generador.py sea 100% reproducible.
+# =============================================================================
+
+seed: 42
+
+paths:
+  corpus_raw: "data/raw"          # documentos originales de ADL (o proxy)
+  processed: "data/processed"     # texto extraido + chunks intermedios
+  entrega: "entrega"              # estructura de entrega final
+  queries: "data/queries.jsonl"   # 50 consultas q001-q050 (una por linea)
+  resultados: "entrega/resultados.jsonl"
+
+# --- Extraccion ---
+extraction:
+  pdf_backend: "docling"          # docling | pymupdf
+  ocr_enabled: true               # PaddleOCR sobre imagenes con texto
+  ocr_langs: ["es", "en", "pt"]
+
+# --- Limpieza ---
+cleaning:
+  fix_encoding: true              # ftfy
+  detect_language: true
+  drop_boilerplate: true
+  min_chunk_chars: 40             # descartar fragmentos basura
+
+# --- Chunking (2 niveles) ---
+chunking:
+  strategy: "sentence_window"     # sentence_window | paragraph | semantic | late
+  index_max_tokens: 384           # tamano de chunk para el encoder (<=512)
+  overlap_sentences: 1            # solapamiento entre chunks consecutivos
+  output_max_words: 250           # limite duro por fragmento de salida (spec 9.2)
+  respect_sentences: true         # completitud linguistica (spec 3.3) - OBLIGATORIO
+
+# --- Encoders (multiples -> fusion). Cada uno genera su propio indice FAISS ---
+encoders:
+  - name: "bge-m3"
+    model_id: "BAAI/bge-m3"
+    weight: 1.0
+    normalize: true
+    use_dense: true
+    use_sparse: true              # BGE-M3 lexical (fusion interna)
+    use_colbert: false            # multi-vector (costoso; activar si aporta)
+  - name: "e5-large"
+    model_id: "intfloat/multilingual-e5-large"
+    weight: 0.8
+    normalize: true
+    query_prefix: "query: "       # E5 requiere prefijos
+    passage_prefix: "passage: "
+
+faiss:
+  index_type: "IndexFlatIP"       # coseno exacto con vectores normalizados
+  # index_type: "IndexHNSWFlat"   # aproximado, si el corpus es muy grande
+
+# --- Recuperacion ---
+retrieval:
+  top_k_faiss: 100                # candidatos por indice antes de fusionar
+  fusion: "rrf"                   # rrf | combsum | combmnz
+  rrf_k: 60
+  final_fragments: 10             # spec: exactamente 10
+  final_documents: 3             # spec: exactamente 3
+
+# --- Reranking (cross-encoder, TOGGLE - zona gris "no decoders") ---
+rerank:
+  enabled: true                   # false = solo bi-encoders (modo seguro)
+  model_id: "BAAI/bge-reranker-v2-m3"
+  top_k_candidates: 50            # rerankear solo el top-50 fusionado
+
+# --- Agregacion chunk -> documento (para F1@3) ---
+aggregation:
+  method: "max_pool"              # max_pool | sum | weighted_mean
+  k_chunks: 30                    # chunks a considerar por doc
+
+# --- Grafo de conocimiento (bonus) ---
+graph:
+  enabled: true
+  ner_model: "urchade/gliner_multi-v2.1"
+  entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
+  fuse_into_retrieval: true       # spec 8.5 (RRF con grafo como indice extra)

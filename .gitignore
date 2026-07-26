@@ -1,0 +1,33 @@
+# Datos y artefactos pesados
+data/raw/
+data/processed/
+entrega/base_vectorial/
+entrega_smoke/
+*.faiss
+*.jsonl
+!eval_interno/**/*.jsonl
+!tests/**/*.jsonl
+
+# Modelos descargados
+models/
+.cache/
+*.bin
+*.safetensors
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.venv311/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Entorno
+.env
+.DS_Store
+
+# PDFs de contexto y documento oficial del reto (no redistribuir en repo publico)
+Combinado-Anexos-Certificados.*
+CODEFEST_2026-1.pdf

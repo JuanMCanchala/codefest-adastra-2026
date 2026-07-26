@@ -1,0 +1,61 @@
+# Config de SMOKE TEST: valida el pipeline ML completo con un modelo pequeno y
+# rapido sobre el corpus proxy. NO es la config de entrega (esa es config.yaml
+# con BGE-M3 en GPU). Objetivo: probar plumbing extremo-a-extremo + metricas.
+
+seed: 42
+
+paths:
+  corpus_raw: "data/proxy"
+  processed: "data/processed"
+  entrega: "entrega_smoke"
+  queries: "eval_interno/queries_smoke.jsonl"
+  resultados: "entrega_smoke/resultados.jsonl"
+
+extraction:
+  pdf_backend: "pymupdf"
+  ocr_enabled: false
+  ocr_langs: ["es", "en", "pt"]
+
+cleaning:
+  fix_encoding: true
+  detect_language: false
+  drop_boilerplate: false
+  min_chunk_chars: 20
+
+chunking:
+  strategy: "sentence_window"
+  index_max_tokens: 80
+  overlap_sentences: 1
+  output_max_words: 250
+  respect_sentences: true
+
+encoders:
+  - name: "mini-lm"
+    model_id: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    weight: 1.0
+    normalize: true
+
+faiss:
+  index_type: "IndexFlatIP"
+
+retrieval:
+  top_k_faiss: 20
+  fusion: "rrf"
+  rrf_k: 60
+  final_fragments: 10
+  final_documents: 3
+
+rerank:
+  enabled: false
+  model_id: "BAAI/bge-reranker-v2-m3"
+  top_k_candidates: 20
+
+aggregation:
+  method: "max_pool"
+  k_chunks: 20
+
+graph:
+  enabled: false
+  ner_model: "urchade/gliner_multi-v2.1"
+  entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
+  fuse_into_retrieval: false
