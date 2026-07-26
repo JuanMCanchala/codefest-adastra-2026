@@ -1,0 +1,42 @@
+# =============================================================================
+#  CODEFEST AD ASTRA 2026 - Etapa 1
+#  Recomendado: Python 3.11 en venv dedicado (.venv311) para la capa ML.
+#  El core (metrics/chunking/schema) corre en 3.11-3.13.
+# =============================================================================
+
+# --- Core / utilidades (funciona en 3.11-3.13) ---
+numpy>=1.26
+pyyaml>=6.0
+tqdm>=4.66
+orjson>=3.9
+
+# --- Segmentacion de oraciones multilingue (chunking) ---
+pysbd>=0.3.4
+
+# --- Deteccion de idioma / limpieza de texto ---
+ftfy>=6.1
+fasttext-langdetect>=1.0.5    # o langdetect>=1.0.9 como fallback
+
+# --- Extraccion multiformato ---
+# PDF (extraccion de vanguardia: layout + tablas). Requiere Python <=3.11/3.12.
+docling>=2.0                  # IBM, MIT. Alternativa SOTA para PDF/tablas
+pymupdf>=1.24                 # fallback rapido de texto PDF
+trafilatura>=1.8             # HTML: limpieza de boilerplate
+pandas>=2.1                   # CSV/XLSX
+openpyxl>=3.1                 # XLSX
+paddleocr>=2.7               # OCR multilingue (imagenes/infografias)
+# pyosmium>=3.6              # PBF (mapas) - activar cuando haya .pbf reales
+
+# --- Encoders + indice vectorial (GPU) ---
+torch>=2.2                    # instalar build CUDA segun tu GPU
+sentence-transformers>=3.0
+FlagEmbedding>=1.2            # BGE-M3 (dense+sparse+colbert) y bge-reranker
+transformers>=4.40
+faiss-cpu>=1.8                # usar faiss-gpu si hay build disponible en tu OS
+
+# --- Grafo de conocimiento (bonus) ---
+gliner>=0.2.5                 # NER multilingue zero-shot (MIT)
+networkx>=3.2                 # grafo -> graphml
+
+# --- Tests ---
+pytest>=8.0
