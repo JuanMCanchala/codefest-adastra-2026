@@ -61,7 +61,22 @@ def load_pipeline(cfg: dict):
         from src.retrieval.rerank import CrossEncoderReranker
         reranker = CrossEncoderReranker(cfg["rerank"]["model_id"], device=device)
 
-    return Retriever(stores=stores, encoders=encoders, cfg=cfg, reranker=reranker)
+    # Grafo de conocimiento (bonus, Seccion 8.5): se carga desde grafo.graphml y
+    # se le adjunta el NER para extraer entidades de la consulta en recuperacion.
+    graph_retriever = None
+    gcfg = cfg.get("graph", {})
+    if gcfg.get("enabled") and gcfg.get("fuse_into_retrieval"):
+        graphml = base / "grafo" / "grafo.graphml"
+        if graphml.exists():
+            import networkx as nx
+            from gliner import GLiNER
+            from src.graph.retrieve import GraphRetriever
+            graph = nx.read_graphml(str(graphml))
+            ner = GLiNER.from_pretrained(gcfg["ner_model"])
+            graph_retriever = GraphRetriever(graph, ner, gcfg["entity_types"])
+
+    return Retriever(stores=stores, encoders=encoders, cfg=cfg,
+                     reranker=reranker, graph_retriever=graph_retriever)
 
 
 def main() -> None:

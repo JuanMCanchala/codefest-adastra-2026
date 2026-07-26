@@ -3,6 +3,8 @@ data/raw/
 data/processed/
 entrega/base_vectorial/
 entrega_smoke/
+entrega_bge/
+entrega_multi/
 *.faiss
 *.jsonl
 !eval_interno/**/*.jsonl
