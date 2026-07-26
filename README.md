@@ -41,7 +41,7 @@ src/
   chunking/            # segmentación oraciones + chunker 2 niveles
   encoding/            # encoders (BGE-M3, E5) + índice FAISS
   retrieval/           # fusión RRF/CombSUM/MNZ, rerank, agregación, pipeline
-  graph/               # NER (GLiNER) → grafo.graphml (bonus)
+  graph/               # NER (GLiNER) → grafo.graphml + fusión al retrieval (bonus)
   eval/                # métricas exactas (NDCG@10, F1@3, Borda) + arnés
   schema.py            # metadata Tabla 1 + esquema resultados + validador estricto
 tests/                 # 32 tests del core verificable

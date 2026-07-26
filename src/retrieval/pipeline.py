@@ -18,13 +18,14 @@ from ..schema import QueryResult, DocResult, FragmentResult
 class Retriever:
     """Orquesta multiples VectorStore (uno por encoder) + encoders + reranker."""
 
-    def __init__(self, stores: dict, encoders: dict, cfg: dict, reranker=None):
+    def __init__(self, stores: dict, encoders: dict, cfg: dict, reranker=None, graph_retriever=None):
         # stores:   {encoder_name: VectorStore}
         # encoders: {encoder_name: Encoder}
         self.stores = stores
         self.encoders = encoders
         self.cfg = cfg
         self.reranker = reranker
+        self.graph_retriever = graph_retriever   # GraphRetriever opcional (bonus)
 
     def _search_one(self, name: str, query: str) -> list[tuple[str, float]]:
         """Ranking [(chunk_id, score)] de un encoder para la consulta."""
@@ -45,6 +46,14 @@ class Retriever:
 
         # 1) ranking por encoder + fusion RRF (Seccion 8.4)
         rankings = [self._search_one(name, query) for name in self.encoders]
+
+        # 1b) grafo de conocimiento como indice adicional (Seccion 8.5, bonus)
+        gcfg = self.cfg.get("graph", {})
+        if self.graph_retriever and gcfg.get("fuse_into_retrieval"):
+            graph_ranking = self.graph_retriever.retrieve(query)
+            if graph_ranking:
+                rankings.append(graph_ranking)
+
         fused = fuse(rankings, method=rcfg["fusion"], rrf_k=rcfg["rrf_k"])
 
         # indice chunk_id -> metadata (del primer store; los chunk_id son globales)
