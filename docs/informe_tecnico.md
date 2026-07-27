@@ -291,7 +291,49 @@ cross-lingual.
 
 ### 8.3 Resultados
 
-[PENDIENTE_RESULTADOS]
+**Indexación.** Los 50 documentos se procesaron sin una sola omisión, produciendo **2 601
+fragmentos** (media de 52 por documento). El almacén de metadata pasó la validación de esquema
+con **cero errores** y mantiene la correspondencia exacta línea ↔ identificador interno de FAISS
+que exige el formato de entrega.
+
+**Comparación de configuraciones** (BGE-M3, 11 consultas ES/EN/PT, corpus real):
+
+| Configuración | NDCG@10 | F1@3 | Borda |
+|---|---|---|---|
+| **max pooling + reranking** | **0,4246** | **0,5000** | **8** |
+| media ponderada | 0,3625 | 0,5000 | 6 |
+| max pooling | 0,3625 | 0,5000 | 6 |
+| media ponderada + reranking | 0,4246 | 0,4697 | 5 |
+| suma | 0,3625 | 0,4697 | 3 |
+
+**Hallazgo 1 — el reranking es la palanca más rentable.** El cross-encoder eleva el NDCG@10 de
+0,3625 a **0,4246**, una mejora relativa del **17 %**, sin degradar el F1@3. Es, con diferencia,
+la mayor ganancia individual medida en todo el sistema.
+
+**Hallazgo 2 — los corpus de juguete engañan.** Antes de disponer de este corpus evaluamos las
+mismas variantes sobre un conjunto sintético reducido: allí el reranking **no aportaba nada** e
+incluso perjudicaba levemente, porque con pocos documentos y consultas evidentes el recuperador
+denso ya saturaba las métricas (NDCG ≈ 0,95 en toda variante). La conclusión metodológica es
+que **una decisión de diseño sólo es válida si se mide en condiciones representativas**: de
+haber confiado en el conjunto pequeño, habríamos descartado el componente más valioso.
+
+**Hallazgo 3 — la agregación por suma perjudica el nivel documento.** En ambos corpus, sumar las
+puntuaciones de todos los fragmentos de un documento reduce el F1@3 (0,4697 frente a 0,5000):
+favorece a documentos largos con muchos fragmentos mediocres por encima de documentos concisos
+con un fragmento excelente. Adoptamos **max pooling**.
+
+**Nota sobre la interpretación de las cifras absolutas.** Los juicios de relevancia de este
+conjunto son **incompletos por construcción**: cada consulta tiene alrededor de cinco documentos
+marcados como relevantes, pero el corpus contiene otros documentos genuinamente relacionados con
+el mismo tema que no están etiquetados. Cuando el sistema los recupera —acertadamente— computan
+como error y deprimen el NDCG. Por tanto, **estas cifras son válidas para comparar
+configuraciones entre sí, que es el uso que les damos, pero no son una estimación del
+rendimiento absoluto** sobre el conjunto oficial, cuyos juicios sí son exhaustivos.
+
+**Selección de encoder.** Sobre el conjunto reducido, BGE-M3 obtuvo NDCG@10 de **0,990** frente
+a **0,966** de `paraphrase-multilingual-MiniLM-L12-v2`, con la diferencia concentrada en la
+consulta en portugués (1,000 frente a 0,877), coherente con el criterio cross-lingual que motivó
+su elección.
 
 ---
 
@@ -304,8 +346,8 @@ codificación UTF-8 explícita. Toda la configuración —estrategia de chunking
 índice, fusión, agregación— reside en un único archivo `config.yaml`, de modo que cualquier
 resultado reportado es rastreable a una configuración concreta.
 
-El proyecto cuenta con **[N_TESTS] pruebas automatizadas** que cubren las métricas, el validador
-de esquema, el chunker, las estrategias de fusión, la limpieza y el recuperador basado en grafo.
+El proyecto cuenta con **42 pruebas automatizadas** que cubren las métricas, el validador de
+esquema, el chunker, las estrategias de fusión, la limpieza y el recuperador basado en grafo.
 
 ---
 
@@ -313,10 +355,19 @@ de esquema, el chunker, las estrategias de fusión, la limpieza y el recuperador
 
 La decisión de diseño más rentable de este trabajo no fue la elección del modelo, sino **leer la
 regla de emparejamiento y orientar el esfuerzo a la fidelidad del texto**. La limpieza del
-corpus produjo la mejora más grande y barata; el encoder correcto (BGE-M3) resolvió el requisito
-cross-lingual; y el arnés de evaluación interno convirtió decisiones de intuición en decisiones
-medidas.
+corpus produjo la mejora más barata; el encoder correcto (BGE-M3) resolvió el requisito
+cross-lingual; el reranking con cross-encoder aportó la mayor ganancia medida (+17 % de NDCG@10);
+y el arnés de evaluación interno convirtió decisiones de intuición en decisiones medidas.
+
+La lección metodológica que atraviesa todo el trabajo es que **medir en condiciones
+representativas cambia las conclusiones**. Dos de nuestros hallazgos —el valor del reranking y el
+perjuicio de la agregación por suma— sólo emergieron al evaluar sobre documentos reales, largos
+y multilingües. Y dos defectos que habrían costado puntos —el separador de rutas en `fuente` y
+un error en el ranking ideal del NDCG— fueron detectados por las pruebas automatizadas y el
+arnés, no por inspección visual.
 
 Los componentes de mayor riesgo regulatorio —el reranking con cross-encoder— quedan aislados
 tras interruptores de configuración, de modo que el sistema puede ajustarse a la interpretación
-del jurado sin tocar una línea de código.
+del jurado sin tocar una línea de código. Nuestra recomendación, sujeta a esa consulta, es
+mantenerlo activo: es la diferencia medida más grande entre una entrada correcta y una
+competitiva.

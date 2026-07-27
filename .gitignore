@@ -1,7 +1,8 @@
 # Datos y artefactos pesados
 data/raw/
 data/processed/
-data/corpus/          # corpus de prueba descargado (PDFs de terceros, no redistribuir)
+# corpus de prueba descargado (PDFs de terceros, no redistribuir)
+data/corpus/
 entrega/base_vectorial/
 entrega_smoke/
 entrega_bge/
@@ -34,3 +35,9 @@ venv/
 # PDFs de contexto y documento oficial del reto (no redistribuir en repo publico)
 Combinado-Anexos-Certificados.*
 CODEFEST_2026-1.pdf
+
+# Auxiliares de LaTeX
+*.aux
+*.toc
+*.out
+*.synctex.gz
