@@ -22,35 +22,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.utils.io import read_jsonl, write_jsonl  # noqa: E402
 
-# Consulta de arXiv -> (consulta en lenguaje natural, idioma)
-# Se rota el idioma a proposito: la mitad de las consultas NO estan en ingles,
-# que es el idioma de casi todos los papers -> mide recuperacion cross-lingual.
-QUERY_MAP = {
-    'all:"autonomous weapons" AND cat:cs.CY':
-        ("riesgos y gobernanza de las armas autonomas letales", "es"),
-    'all:"military artificial intelligence"':
-        ("military applications of artificial intelligence in defense", "en"),
-    'all:"AI governance" AND cat:cs.CY':
-        ("governanca e regulacao da inteligencia artificial", "pt"),
-    'all:"defense" AND all:"machine learning" AND cat:cs.CY':
-        ("aprendizaje automatico aplicado al sector defensa", "es"),
-    'all:"space debris"':
-        ("desechos espaciales y basura orbital", "es"),
-    'all:"low earth orbit" AND all:"collision"':
-        ("collision risk between objects in low earth orbit", "en"),
-    'all:"satellite constellation" AND all:"sustainability"':
-        ("sustentabilidade das constelacoes de satelites", "pt"),
-    'all:"orbital debris" AND all:"mitigation"':
-        ("mitigacion y remocion de desechos orbitales", "es"),
-    'all:"Latin America" AND all:"inequality"':
-        ("desigualdad social en America Latina", "es"),
-    'all:"Latin America" AND all:"violence"':
-        ("violence and organized crime in Latin America", "en"),
-    'all:"migration" AND all:"Latin America"':
-        ("migracao e deslocamento na America Latina", "pt"),
-    'all:"governance" AND all:"Latin America"':
-        ("gobernanza institucional y politicas publicas en America Latina", "es"),
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from corpus_topics import natural_by_arxiv  # noqa: E402
+
+# Consulta de arXiv -> (consulta en lenguaje natural, idioma). Fuente unica en
+# scripts/corpus_topics.py, compartida con fetch_corpus.py.
+QUERY_MAP = natural_by_arxiv()
 
 
 def grade_from_rank(rank: int) -> int:

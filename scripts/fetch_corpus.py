@@ -17,6 +17,7 @@ pide), user-agent identificable y omision de archivos ya descargados.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -32,27 +33,12 @@ ARXIV_HOSTS = [
 ]
 ATOM = "{http://www.w3.org/2005/Atom}"
 
-# Consultas a arXiv por fenomeno. cat: acota la categoria para mejorar precision.
-ARXIV_TOPICS = {
-    1: [
-        'all:"autonomous weapons" AND cat:cs.CY',
-        'all:"military artificial intelligence"',
-        'all:"AI governance" AND cat:cs.CY',
-        'all:"defense" AND all:"machine learning" AND cat:cs.CY',
-    ],
-    2: [
-        'all:"space debris"',
-        'all:"low earth orbit" AND all:"collision"',
-        'all:"satellite constellation" AND all:"sustainability"',
-        'all:"orbital debris" AND all:"mitigation"',
-    ],
-    3: [
-        'all:"Latin America" AND all:"inequality"',
-        'all:"Latin America" AND all:"violence"',
-        'all:"migration" AND all:"Latin America"',
-        'all:"governance" AND all:"Latin America"',
-    ],
-}
+# Los temas viven en scripts/corpus_topics.py (fuente unica compartida con
+# make_eval_corpus.py, para que descarga y eval set no se desincronicen).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from corpus_topics import arxiv_queries  # noqa: E402
+
+ARXIV_TOPICS = arxiv_queries()
 
 # Informes institucionales (multilingues, formato PDF real de organismos).
 INSTITUTIONAL = [
