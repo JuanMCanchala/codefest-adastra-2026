@@ -134,6 +134,33 @@ caracteres, y desaparecieron los fragmentos compuestos únicamente por el índic
 +13% de contenido extraído y fue el único que recuperó una tabla como estructura tabular.
 **Coste:** ~61 s/documento en CPU. → docling para la entrega, pymupdf para iterar rápido.
 
+### R7 — El híbrido denso+disperso solo funciona CON reranker
+| Configuración | NDCG@10 | F1@3 | Borda |
+|---|---|---|---|
+| **híbrido + reranking** | **0.4378** | **0.5303** | **10** |
+| denso + reranking | 0.4246 | 0.5000 | 8 |
+| denso solo | 0.3625 | 0.5000 | 7 |
+| **híbrido solo** | **0.2817** | 0.4697 | 4 |
+
+**Interpretación mecánica:** la señal dispersa amplía el conjunto de candidatos con documentos
+léxicamente similares. Sin reranker, ese ruido contamina el orden final y el NDCG **cae un 22%**.
+Con reranker, el cross-encoder aprovecha los candidatos relevantes que el denso no encontró y
+descarta el resto. Es decir: **el disperso aporta *recall*, el reranker lo convierte en
+*precisión*** — el patrón clásico de "primera etapa amplia + reordenador preciso".
+
+**Implicación estratégica — la configuración óptima depende de la respuesta del jurado:**
+
+| Si el jurado… | Configuración correcta | NDCG@10 |
+|---|---|---|
+| **permite** el reranker | híbrido + reranking | 0.4378 |
+| **veta** el reranker | **denso solo** (NO híbrido) | 0.3625 |
+
+Activar el disperso sin reranker sería un error grave (0.2817).
+
+**Cautela estadística:** con 11 consultas, la mejora de 0.4246 → 0.4378 (+3%) está dentro del
+ruido. La caída del híbrido solo (−22%) sí es inequívoca. Por eso se priorizó **ampliar el
+conjunto de evaluación** antes de tomar más decisiones.
+
 ### R6 — Multi-encoder (BGE-M3 + E5) no aportó en el proxy
 0.9446 (BGE-M3 solo) vs 0.9394 (con E5). **Pendiente de re-medir en corpus real** — el proxy ya
 demostró ser mal juez (ver R2).
