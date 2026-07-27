@@ -56,18 +56,33 @@ INSTITUTIONAL = [
 ]
 
 
-def _get(url: str, timeout: int = 60, retries: int = 3) -> bytes:
-    """GET con reintentos: el DNS de la red falla de forma intermitente."""
+def _get(url: str, timeout: int = 60, retries: int = 4) -> bytes:
+    """GET con reintentos y retroceso exponencial.
+
+    Distingue dos fallos que exigen respuestas opuestas:
+      - 429/503 (el servidor pide que bajemos el ritmo): se espera MUCHO mas y
+        NUNCA se prueban hosts alternativos, porque eso multiplicaria la tasa de
+        peticiones justo cuando nos estan pidiendo lo contrario.
+      - errores de DNS/conexion (la red local falla): reintento corto.
+    """
     last: Exception | None = None
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
-        except Exception as exc:
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code in (429, 503):
+                wait = 20 * (2 ** attempt)          # 20s, 40s, 80s, 160s
+                print(f"    [·] {exc.code}: el servidor pide esperar, {wait}s...")
+                time.sleep(wait)
+            else:
+                break                                # 404 y similares: no insistir
+        except Exception as exc:                     # DNS / conexion
             last = exc
             if attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(3 * (attempt + 1))
     raise last if last else RuntimeError("fallo desconocido")
 
 
@@ -79,15 +94,19 @@ def search_arxiv(query: str, max_results: int) -> list[dict]:
         "max_results": max_results,
         "sortBy": "relevance",
     })
-    raw = None
+    raw, last_exc = None, None
     for host in ARXIV_HOSTS:
         try:
             raw = _get(host + params)
             break
-        except Exception as exc:
+        except urllib.error.HTTPError as exc:
             last_exc = exc
+            if exc.code in (429, 503):
+                break            # el servidor pide calma: no insistir en otro host
+        except Exception as exc:
+            last_exc = exc       # DNS: si tiene sentido probar otro host
     if raw is None:
-        print(f"    [!] fallo la consulta en todos los hosts ({last_exc})")
+        print(f"    [!] fallo la consulta ({last_exc})")
         return []
 
     root = ET.fromstring(raw)
@@ -127,6 +146,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/corpus")
     ap.add_argument("--per-topic", type=int, default=6, help="papers de arXiv por consulta")
+    ap.add_argument("--delay", type=float, default=6.0,
+                    help="segundos entre consultas a la API (la guia de arXiv pide >=3)")
     ap.add_argument("--skip-arxiv", action="store_true")
     ap.add_argument("--skip-institutional", action="store_true")
     args = ap.parse_args()
@@ -135,11 +156,31 @@ def main() -> None:
     total = 0
     # Manifiesto: que consulta recupero cada documento. Sirve como etiqueta de
     # relevancia DEBIL para construir un eval set sobre el corpus descargado.
+    # Se escribe DESPUES DE CADA TEMA y se reanuda: si el proceso muere (o la API
+    # nos limita), no se pierde lo ya conseguido ni se repiten consultas.
+    manifest_path = out_root / "manifest.jsonl"
     manifest: list[dict] = []
+    if manifest_path.exists():
+        import json as _json
+        with manifest_path.open(encoding="utf-8") as fh:
+            manifest = [_json.loads(l) for l in fh if l.strip()]
+    done_queries = {row["query"] for row in manifest}
+    if done_queries:
+        print(f"[fetch_corpus] reanudando: {len(done_queries)} temas ya registrados")
+
+    def _persist_manifest() -> None:
+        import json as _json
+        out_root.mkdir(parents=True, exist_ok=True)
+        with manifest_path.open("w", encoding="utf-8", newline="\n") as fh:
+            for row in manifest:
+                fh.write(_json.dumps(row, ensure_ascii=False) + "\n")
 
     if not args.skip_arxiv:
         for fenomeno, queries in ARXIV_TOPICS.items():
             for query in queries:
+                if query in done_queries:
+                    print(f"[arXiv] fenomeno {fenomeno}: (ya hecho) {query}")
+                    continue
                 print(f"[arXiv] fenomeno {fenomeno}: {query}")
                 results = search_arxiv(query, args.per_topic)
                 print(f"    {len(results)} resultados")
@@ -156,15 +197,13 @@ def main() -> None:
                             "rank_en_query": rank + 1,
                             "titulo": r["title"],
                         })
-                time.sleep(3)      # cortesia con la API de arXiv
+                if results:
+                    _persist_manifest()   # progreso a salvo tras cada tema
+                time.sleep(args.delay)    # cortesia con la API de arXiv
 
     if manifest:
-        import json
-        mf = out_root / "manifest.jsonl"
-        with mf.open("w", encoding="utf-8", newline="\n") as fh:
-            for row in manifest:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-        print(f"[fetch_corpus] manifiesto: {mf} ({len(manifest)} entradas)")
+        _persist_manifest()
+        print(f"[fetch_corpus] manifiesto: {manifest_path} ({len(manifest)} entradas)")
 
     if not args.skip_institutional:
         print("\n[institucional]")
