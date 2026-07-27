@@ -43,12 +43,17 @@ def detect_format(path: str | Path) -> str:
     return fmt
 
 
-def extract(path: str | Path, doc_id: str, fuente: str, fenomeno: int = 0) -> Document:
-    """Dispatch por formato. Importa el extractor concreto de forma diferida."""
+def extract(path: str | Path, doc_id: str, fuente: str, fenomeno: int = 0,
+            pdf_backend: str = "docling") -> Document:
+    """Dispatch por formato. Importa el extractor concreto de forma diferida.
+
+    `pdf_backend` viene de config.extraction.pdf_backend: 'docling' (mejor
+    fidelidad de layout/tablas, mas lento) o 'pymupdf' (rapido, texto plano).
+    """
     fmt = detect_format(path)
     if fmt == "pdf":
         from .pdf import extract_pdf
-        text = extract_pdf(path)
+        text = extract_pdf(path, backend=pdf_backend)
     elif fmt == "html":
         from .html_ext import extract_html
         text = extract_html(path)
