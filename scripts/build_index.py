@@ -52,15 +52,26 @@ def build(cfg: dict) -> None:
 
     # 1) extraer + chunkear todo el corpus
     drop_bp = cfg.get("cleaning", {}).get("drop_boilerplate", True)
+    pdf_backend = cfg.get("extraction", {}).get("pdf_backend", "docling")
     all_chunks: list[ChunkMeta] = []
+    failed: list[tuple[str, str]] = []
+    min_chars = cfg.get("cleaning", {}).get("min_chunk_chars", 0)
     for path, doc_id, fuente, fenomeno in iter_corpus(raw_dir):
-        doc = extract(path, doc_id=doc_id, fuente=fuente, fenomeno=fenomeno)
-        doc.text = clean_document(doc.text, drop_boilerplate=drop_bp)  # Seccion 2.2
-        raw_chunks = chunk_document(
-            doc.text, lang=doc.idioma or "es",
-            index_max_tokens=chunk_cfg["index_max_tokens"],
-            overlap_sentences=chunk_cfg["overlap_sentences"],
-        )
+        # Un documento corrupto no debe tumbar la indexacion del corpus completo.
+        try:
+            doc = extract(path, doc_id=doc_id, fuente=fuente, fenomeno=fenomeno,
+                          pdf_backend=pdf_backend)
+            doc.text = clean_document(doc.text, drop_boilerplate=drop_bp)  # Seccion 2.2
+            raw_chunks = chunk_document(
+                doc.text, lang=doc.idioma or "es",
+                index_max_tokens=chunk_cfg["index_max_tokens"],
+                overlap_sentences=chunk_cfg["overlap_sentences"],
+            )
+        except Exception as exc:
+            failed.append((fuente, type(exc).__name__))
+            print(f"[build] OMITIDO {fuente}: {type(exc).__name__}")
+            continue
+        raw_chunks = [rc for rc in raw_chunks if len(rc.text) >= min_chars]
         for rc in raw_chunks:
             all_chunks.append(ChunkMeta(
                 doc_id=doc_id,
@@ -69,7 +80,9 @@ def build(cfg: dict) -> None:
                 posicion=rc.posicion, num_tokens=rc.num_tokens, texto=rc.text,
                 idioma=doc.idioma,
             ))
-    print(f"[build] {len(all_chunks)} chunks de {raw_dir}")
+    n_docs = len({c.doc_id for c in all_chunks})
+    print(f"[build] {len(all_chunks)} chunks de {n_docs} documentos en {raw_dir}"
+          + (f" ({len(failed)} omitidos)" if failed else ""))
 
     texts = [c.texto for c in all_chunks]
     metadata = [c.to_json() for c in all_chunks]

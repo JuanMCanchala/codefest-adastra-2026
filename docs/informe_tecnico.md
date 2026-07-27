@@ -264,7 +264,30 @@ ranking ideal del NDCG que producía valores superiores a 1.
 
 ### 8.2 Corpus de validación
 
-[PENDIENTE_CORPUS]
+Para validar el sistema en condiciones realistas antes de disponer del corpus oficial,
+construimos un conjunto de prueba con **50 documentos públicos auténticos** (111 MB) sobre los
+tres fenómenos:
+
+| Fenómeno | Documentos | Fuentes |
+|---|---|---|
+| 1 · IA en defensa | 15 | Artículos de arXiv sobre armas autónomas, IA militar y gobernanza de IA |
+| 2 · Seguridad espacial y LEO | 21 | arXiv sobre desechos orbitales y colisiones + **ESA Space Environment Report** + informe IADC de **UNOOSA** |
+| 3 · Dinámicas territoriales | 14 | arXiv sobre desigualdad, violencia y migración en América Latina + **Panorama Social de la CEPAL** |
+
+Este corpus reproduce las dificultades del escenario real: documentos **largos** (el informe de
+la CEPAL supera los 980 000 caracteres y produce 654 fragmentos por sí solo), **multilingües**
+(español, inglés y portugués), con estructura académica e institucional real —resúmenes,
+secciones, referencias, tablas, encabezados repetidos.
+
+**Juicios de relevancia.** Al no poder anotar 50 documentos a mano, aprovechamos una señal
+existente: el propio buscador de arXiv. Si la consulta `all:"space debris"` devolvió un
+artículo, ese artículo es relevante para una consulta en lenguaje natural sobre desechos
+espaciales, y su **posición en los resultados** da el grado de relevancia (posiciones 1–2 → 3,
+3–4 → 2, resto → 1). Es supervisión débil, pero es una señal real e independiente de nuestro
+sistema, lo que evita el sesgo circular de evaluarnos con juicios que nosotros mismos hubiéramos
+producido. Las consultas se redactaron en lenguaje natural repartidas entre **español, inglés y
+portugués**, deliberadamente en idiomas distintos al de los documentos para forzar el escenario
+cross-lingual.
 
 ### 8.3 Resultados
 
