@@ -18,14 +18,17 @@ from ..schema import QueryResult, DocResult, FragmentResult
 class Retriever:
     """Orquesta multiples VectorStore (uno por encoder) + encoders + reranker."""
 
-    def __init__(self, stores: dict, encoders: dict, cfg: dict, reranker=None, graph_retriever=None):
-        # stores:   {encoder_name: VectorStore}
-        # encoders: {encoder_name: Encoder}
+    def __init__(self, stores: dict, encoders: dict, cfg: dict, reranker=None,
+                 graph_retriever=None, sparse_indexes: dict | None = None):
+        # stores:         {encoder_name: VectorStore}
+        # encoders:       {encoder_name: Encoder}
+        # sparse_indexes: {encoder_name: SparseIndex} (opcional, senal lexical)
         self.stores = stores
         self.encoders = encoders
         self.cfg = cfg
         self.reranker = reranker
         self.graph_retriever = graph_retriever   # GraphRetriever opcional (bonus)
+        self.sparse_indexes = sparse_indexes or {}
 
     def _search_one(self, name: str, query: str) -> list[tuple[str, float]]:
         """Ranking [(chunk_id, score)] de un encoder para la consulta."""
@@ -46,6 +49,17 @@ class Retriever:
 
         # 1) ranking por encoder + fusion RRF (Seccion 8.4)
         rankings = [self._search_one(name, query) for name in self.encoders]
+
+        # 1a) senal lexical (dispersa) del mismo encoder: recupera coincidencias
+        # exactas de siglas y nombres propios que el vector denso diluye.
+        for name, sparse in self.sparse_indexes.items():
+            enc = self.encoders.get(name)
+            if sparse is None or enc is None or not hasattr(enc, "encode_sparse"):
+                continue
+            q_weights = enc.encode_sparse([query])[0]
+            sparse_ranking = sparse.search(q_weights, top_k=rcfg["top_k_faiss"])
+            if sparse_ranking:
+                rankings.append(sparse_ranking)
 
         # 1b) grafo de conocimiento como indice adicional (Seccion 8.5, bonus)
         gcfg = self.cfg.get("graph", {})

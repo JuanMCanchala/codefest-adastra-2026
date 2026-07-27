@@ -6,6 +6,15 @@ multiformato (ES/EN/PT) sobre 3 fenómenos y responde 50 consultas devolviendo
 **top-3 documentos + top-10 fragmentos**. Evaluación: `NDCG@10` (fragmentos) +
 `F1@3` (documentos), fusionados con Conteo de Borda.
 
+## Documentación
+
+| Documento | Para qué |
+|---|---|
+| **[docs/SISTEMA.md](docs/SISTEMA.md)** | Referencia completa: arquitectura, cada módulo, cada decisión, runbook y **preguntas frecuentes con sus respuestas** |
+| **[docs/BITACORA.md](docs/BITACORA.md)** | Trazabilidad: qué cambió, por qué, resultados medidos, bugs corregidos, consultas al jurado |
+| **[docs/informe_tecnico.pdf](docs/informe_tecnico.pdf)** | Entregable 3 oficial (4 págs) |
+| [docs/NOTA_UNLIMITED_OCR.md](docs/NOTA_UNLIMITED_OCR.md) | Candidato parqueado y por qué |
+
 ## Las 5 claves que deciden el puntaje
 
 1. **El emparejamiento es por contenido, no por id** (spec 10.2.1): fragmentos se
