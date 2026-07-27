@@ -32,16 +32,37 @@ def _l2_normalize(mat: np.ndarray) -> np.ndarray:
     return (mat / norms).astype(np.float32)
 
 
+_WARNED_CPU_BUILD = False
+
+
 def resolve_device(device: str = "auto") -> str:
     """'auto' -> 'cuda' si hay GPU disponible, si no 'cpu'. Deja pasar valores
-    explicitos ('cuda'/'cpu'). Permite el mismo codigo en smoke CPU y GPU real."""
+    explicitos ('cuda'/'cpu'). Permite el mismo codigo en smoke CPU y GPU real.
+
+    Avisa si torch es un build de CPU habiendo GPU en la maquina: instalar
+    paquetes que dependen de torch (docling, gliner...) puede sobrescribir en
+    silencio la version CUDA por la de CPU de PyPI, y todo pasa a ir ~10x mas
+    lento sin ningun error visible.
+    """
+    global _WARNED_CPU_BUILD
     if device != "auto":
         return device
     try:
         import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
     except ImportError:
         return "cpu"
+
+    if torch.cuda.is_available():
+        return "cuda"
+
+    if not _WARNED_CPU_BUILD and torch.version.cuda is None:
+        import shutil
+        if shutil.which("nvidia-smi"):
+            print(f"[AVISO] torch {torch.__version__} es un build de CPU pero hay GPU NVIDIA. "
+                  f"Reinstalar con: pip install torch=={torch.__version__.split('+')[0]} "
+                  f"--index-url https://download.pytorch.org/whl/cu126")
+            _WARNED_CPU_BUILD = True
+    return "cpu"
 
 
 class BGEM3Encoder(Encoder):
