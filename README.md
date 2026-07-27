@@ -83,6 +83,12 @@ python generador.py                  # genera entrega/resultados.jsonl
 4. `generador.py` (reproduce resultados)
 5. `base_vectorial/grafo/grafo.graphml` (bonus)
 
+## Candidatos evaluados (no en main)
+
+- **Unlimited-OCR** (baidu, 3B, MIT) — OCR SOTA one-shot para documentos largos.
+  Parqueado en la rama `feat/unlimited-ocr`; ver [docs/NOTA_UNLIMITED_OCR.md](docs/NOTA_UNLIMITED_OCR.md)
+  para el porqué y las condiciones bajo las que lo activaríamos.
+
 ## Decisiones abiertas / riesgos
 
 - **Reranker cross-encoder**: `rerank.enabled` en config. Consultar al jurado; si
