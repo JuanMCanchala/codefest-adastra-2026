@@ -18,6 +18,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.encoding.index import VectorStore                # noqa: E402
+from src.encoding.sparse import SparseIndex               # noqa: E402
 from src.encoding.encoders import build_encoder, resolve_device  # noqa: E402
 from src.retrieval.pipeline import Retriever              # noqa: E402
 from src.eval.harness import evaluate                     # noqa: E402
@@ -38,13 +39,17 @@ def main() -> None:
     print(f"[eval] device = {device}")
 
     base = Path(cfg["paths"]["entrega"]) / "base_vectorial"
-    stores, encoders = {}, {}
+    stores, encoders, sparse_indexes = {}, {}, {}
     docid_to_fuente, chunk_fuentes = {}, {}
     for enc_cfg in cfg["encoders"]:
         name = enc_cfg["name"]
         store = VectorStore.load(base / f"encoder_{name}")
         stores[name] = store
         encoders[name] = build_encoder(enc_cfg, device=device)
+        sp = SparseIndex.load(base / f"encoder_{name}")
+        if sp is not None:
+            sparse_indexes[name] = sp
+            print(f"[eval] indice disperso de {name}: {sp.n_chunks} chunks, {sp.n_tokens} tokens")
         for m in store.metadata:
             docid_to_fuente.setdefault(m["doc_id"], m["fuente"])
             chunk_fuentes.setdefault(m["chunk_id"], m["fuente"])
@@ -62,23 +67,34 @@ def main() -> None:
         print("[eval] cargando cross-encoder...")
         reranker = CrossEncoderReranker(cfg["rerank"]["model_id"], device=device)
 
-    variants = [("max_pool", False), ("sum", False), ("weighted_mean", False)]
+    # (agregacion, rerank, usar_disperso). El eje 'disperso' es la pregunta
+    # central: mide el aporte de la senal lexical de BGE-M3 sobre el denso solo.
+    variants = [
+        ("max_pool", False, False),   # A: denso solo (linea base actual)
+        ("max_pool", False, True),    # B: hibrido denso+disperso
+        ("sum", False, True),
+        ("weighted_mean", False, True),
+    ]
     if args.with_rerank:
-        variants += [("max_pool", True), ("weighted_mean", True)]
+        variants += [
+            ("max_pool", True, False),   # C: denso + rerank
+            ("max_pool", True, True),    # D: hibrido + rerank (todo)
+        ]
 
     ndcg, f1 = {}, {}
     print("=== VARIANTES ===")
-    for agg, use_rr in variants:
+    for agg, use_rr, use_sparse in variants:
         vcfg = copy.deepcopy(cfg)
         vcfg["aggregation"]["method"] = agg
         vcfg["rerank"]["enabled"] = use_rr
-        r = Retriever(stores, encoders, vcfg, reranker=reranker if use_rr else None)
+        r = Retriever(stores, encoders, vcfg,
+                      reranker=reranker if use_rr else None,
+                      sparse_indexes=sparse_indexes if use_sparse else None)
         m = evaluate(eval_set, r.retrieve, docid_to_fuente, chunk_fuentes, k=10)
-        label = f"{agg}{'+rerank' if use_rr else ''}"
+        label = f"{'hibrido' if use_sparse else 'denso'}-{agg}{'+rr' if use_rr else ''}"
         ndcg[label], f1[label] = m["mean_ndcg@10"], m["mean_f1@3"]
-        print(f"  {label:22s} NDCG@10={m['mean_ndcg@10']:.4f}  F1@3={m['mean_f1@3']:.4f}")
-        if not use_rr and agg == "max_pool":
-            print("    por consulta:")
+        print(f"  {label:26s} NDCG@10={m['mean_ndcg@10']:.4f}  F1@3={m['mean_f1@3']:.4f}")
+        if agg == "max_pool" and not use_rr:
             for pq in m["per_query"]:
                 print(f"      {pq['query_id']}  ndcg={pq['ndcg@10']:.3f}  f1={pq['f1@3']:.3f}")
 

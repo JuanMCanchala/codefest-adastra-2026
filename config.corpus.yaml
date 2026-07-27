@@ -36,7 +36,7 @@ encoders:
     weight: 1.0
     normalize: true
     use_dense: true
-    use_sparse: false
+    use_sparse: true     # senal lexical: siglas y nombres propios (LEO, Kessler, IADC)
     use_colbert: false
 
 faiss:

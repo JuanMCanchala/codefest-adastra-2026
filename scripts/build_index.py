@@ -99,6 +99,18 @@ def build(cfg: dict) -> None:
         store.save(base / f"encoder_{name}")
         print(f"[build] guardado {name}: {store.index.ntotal} vectores")
 
+        # Indice disperso (lexical) del mismo encoder: senal complementaria para
+        # siglas y nombres propios, fusionable por RRF (Seccion 8.4).
+        if enc_cfg.get("use_sparse") and hasattr(encoder, "encode_sparse"):
+            from src.encoding.sparse import SparseIndex
+            print(f"[build] pesos lexicos (disperso) con {name} ...")
+            weights = encoder.encode_sparse(texts, batch_size=32)
+            sparse = SparseIndex()
+            sparse.add(weights, [c.chunk_id for c in all_chunks])
+            sparse.save(base / f"encoder_{name}")
+            print(f"[build] guardado disperso {name}: {sparse.n_chunks} chunks, "
+                  f"{sparse.n_tokens} tokens únicos")
+
     # 3) grafo de conocimiento (bonus)
     if cfg.get("graph", {}).get("enabled"):
         from src.graph.build import GraphBuilder
