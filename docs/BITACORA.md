@@ -80,6 +80,24 @@ en la consulta en portugués (1.000 vs 0.877).
 - **Causa:** incompatibilidad entre `FlagEmbedding.FlagReranker` y la versión de `transformers`.
 - **Fix:** se cambió a `CrossEncoder` de sentence-transformers — **mismo modelo**, cargador robusto.
 
+### C7 — torch CUDA sobrescrito en silencio por el build de CPU
+- **Síntoma:** `torch.cuda.is_available()` devolvía `False` pese a haber GPU libre. Todo el
+  pipeline corría ~10× más lento (build de 2 601 fragmentos: ~20 min en vez de ~2).
+- **Diagnóstico inicial equivocado:** se atribuyó a "procesos huérfanos" que degradaban el driver.
+  Falso — esos procesos eran de otras aplicaciones del usuario y la GPU estaba sana (667 MiB de
+  8 188 en uso).
+- **Causa real:** instalamos `torch 2.6.0+cu124` y funcionaba. Al instalar después `docling` y
+  `gliner`, pip resolvió su dependencia de torch y **lo reemplazó por `2.13.0+cpu`** (el wheel por
+  defecto de PyPI en Windows). Sin error visible: simplemente dejó de haber GPU.
+- **Fix:** `pip install torch==2.13.0+cu126 --index-url .../whl/cu126`. Se eligió **la misma
+  versión** (2.13.0) para no romper las dependencias que la exigían. Nota: `pip install torch==2.13.0`
+  **no** basta — pip considera el requisito satisfecho e ignora el sufijo `+cpu`; hay que
+  especificar la versión local completa y forzar la reinstalación.
+- **Prevención:** `resolve_device()` ahora **avisa por consola** si torch es un build de CPU
+  habiendo una GPU NVIDIA en la máquina.
+- **Lección:** instalar cualquier paquete que dependa de torch puede degradar el entorno en
+  silencio. Verificar `torch.cuda.is_available()` después de cada instalación.
+
 ### C6 — Build frágil ante documentos corruptos
 - **Fix:** cada documento se procesa en un `try/except`; si falla se omite y se reporta, y el resto
   del corpus se indexa igual.
