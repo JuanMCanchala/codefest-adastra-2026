@@ -1,6 +1,7 @@
 # Datos y artefactos pesados
 data/raw/
 data/processed/
+data/corpus/          # corpus de prueba descargado (PDFs de terceros, no redistribuir)
 entrega/base_vectorial/
 entrega_smoke/
 entrega_bge/
