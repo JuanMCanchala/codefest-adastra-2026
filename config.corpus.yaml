@@ -1,0 +1,65 @@
+# Config para el corpus de prueba REAL (data/corpus): papers de arXiv +
+# informes institucionales (ESA, UNOOSA, CEPAL, IPEA) en ES/EN/PT.
+# Es el escenario mas parecido al corpus de ADL: PDFs largos, multilingues,
+# con estructura y ruido real.
+
+seed: 42
+
+paths:
+  corpus_raw: "data/corpus"
+  processed: "data/processed"
+  entrega: "entrega_corpus"
+  queries: "eval_interno/queries_corpus.jsonl"
+  resultados: "entrega_corpus/resultados.jsonl"
+
+extraction:
+  pdf_backend: "pymupdf"       # rapido para ~60 PDFs; docling para la entrega final
+  ocr_enabled: false
+  ocr_langs: ["es", "en", "pt"]
+
+cleaning:
+  fix_encoding: true
+  detect_language: false
+  drop_boilerplate: true       # critico: papers traen cabeceras/pies repetidos
+  min_chunk_chars: 40
+
+chunking:
+  strategy: "sentence_window"
+  index_max_tokens: 256        # documentos largos reales -> chunks mayores
+  overlap_sentences: 1
+  output_max_words: 250
+  respect_sentences: true
+
+encoders:
+  - name: "bge-m3"
+    model_id: "BAAI/bge-m3"
+    weight: 1.0
+    normalize: true
+    use_dense: true
+    use_sparse: false
+    use_colbert: false
+
+faiss:
+  index_type: "IndexFlatIP"
+
+retrieval:
+  top_k_faiss: 100
+  fusion: "rrf"
+  rrf_k: 60
+  final_fragments: 10
+  final_documents: 3
+
+rerank:
+  enabled: false               # se activa en el comparador para medir su aporte
+  model_id: "BAAI/bge-reranker-v2-m3"
+  top_k_candidates: 50
+
+aggregation:
+  method: "max_pool"
+  k_chunks: 30
+
+graph:
+  enabled: false
+  ner_model: "urchade/gliner_multi-v2.1"
+  entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
+  fuse_into_retrieval: false
