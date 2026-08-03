@@ -22,25 +22,39 @@ from src.chunking.chunker import chunk_document          # noqa: E402
 from src.schema import ChunkMeta                          # noqa: E402
 
 
-def iter_corpus(raw_dir: Path):
-    """Genera (path, doc_id, fuente, fenomeno). El fenomeno se infiere de la
-    subcarpeta (fenomeno1/2/3) o de un manifiesto; ajustar al layout real de ADL."""
+def iter_corpus(raw_dir: Path, inventory_path: str | Path | None = None):
+    """Genera (path, doc_id, fuente, fenomeno) para cada documento del corpus.
+
+    Si se dispone del inventario oficial de ADL (Indice_Datos_Codefest.xlsx), se
+    usan SU doc_id, su nombre y su fenomeno: la evaluacion a nivel documento
+    empareja por `fuente` (Seccion 10.2.1), asi que conviene apoyarse en los
+    identificadores del organizador en lugar de inventar unos propios.
+
+    Sin inventario, se cae a inferir el fenomeno del prefijo de la ruta
+    (F1_/F2_/F3_) y a generar identificadores secuenciales.
+    """
+    inventory = {}
+    if inventory_path and Path(inventory_path).exists():
+        from src.corpus_adl import load_inventory
+        inventory = load_inventory(inventory_path)
+        print(f"[build] inventario oficial ADL: {len(inventory)} entradas")
+
     for i, path in enumerate(sorted(raw_dir.rglob("*"))):
-        if not path.is_file():
+        if not path.is_file() or path.name.lower() in (".ds_store",):
             continue
         try:
             detect_format(path)
         except ValueError:
             continue
-        fenomeno = 0
-        for n in (1, 2, 3):
-            if f"fenomeno{n}" in str(path).lower() or f"phenomenon{n}" in str(path).lower():
-                fenomeno = n
-        doc_id = f"DOC-{i:04d}"
         # CLAVE (F1@3): forward slashes siempre, para emparejar `fuente` de forma
         # estable entre Windows/Linux y contra el ground truth.
         fuente = path.relative_to(raw_dir).as_posix()
-        yield path, doc_id, fuente, fenomeno
+        entry = inventory.get(fuente)
+        if entry is not None:
+            yield path, entry.doc_id, fuente, entry.fenomeno
+        else:
+            from src.corpus_adl import fenomeno_from_path
+            yield path, f"DOC-{i:05d}", fuente, fenomeno_from_path(fuente)
 
 
 def build(cfg: dict) -> None:
@@ -56,14 +70,30 @@ def build(cfg: dict) -> None:
     all_chunks: list[ChunkMeta] = []
     failed: list[tuple[str, str]] = []
     min_chars = cfg.get("cleaning", {}).get("min_chunk_chars", 0)
-    for path, doc_id, fuente, fenomeno in iter_corpus(raw_dir):
+    inventory_path = cfg["paths"].get("inventario")
+
+    # Si existe la cache de scripts/extract_corpus.py, se reutiliza: extraer el
+    # corpus completo cuesta horas y no cambia al variar el tamaño de chunk.
+    cache_dir = Path(cfg["paths"].get("processed", "data/processed")) / "text"
+    use_cache = cache_dir.exists() and any(cache_dir.glob("*.txt"))
+    if use_cache:
+        print(f"[build] usando cache de texto: {cache_dir}")
+
+    for path, doc_id, fuente, fenomeno in iter_corpus(raw_dir, inventory_path):
         # Un documento corrupto no debe tumbar la indexacion del corpus completo.
         try:
-            doc = extract(path, doc_id=doc_id, fuente=fuente, fenomeno=fenomeno,
-                          pdf_backend=pdf_backend)
-            doc.text = clean_document(doc.text, drop_boilerplate=drop_bp)  # Seccion 2.2
+            cached = cache_dir / f"{doc_id}.txt" if use_cache else None
+            if cached is not None and cached.exists():
+                texto = cached.read_text(encoding="utf-8", errors="ignore")
+                formato = path.suffix.lstrip(".").lower()
+                idioma = None
+            else:
+                doc = extract(path, doc_id=doc_id, fuente=fuente, fenomeno=fenomeno,
+                              pdf_backend=pdf_backend)
+                texto = clean_document(doc.text, drop_boilerplate=drop_bp)  # Seccion 2.2
+                formato, idioma = doc.formato, doc.idioma
             raw_chunks = chunk_document(
-                doc.text, lang=doc.idioma or "es",
+                texto, lang=idioma or "es",
                 index_max_tokens=chunk_cfg["index_max_tokens"],
                 overlap_sentences=chunk_cfg["overlap_sentences"],
             )
@@ -76,9 +106,9 @@ def build(cfg: dict) -> None:
             all_chunks.append(ChunkMeta(
                 doc_id=doc_id,
                 chunk_id=f"{doc_id}-chunk-{rc.posicion:04d}",
-                fuente=fuente, formato=doc.formato, fenomeno=fenomeno,
+                fuente=fuente, formato=formato, fenomeno=fenomeno,
                 posicion=rc.posicion, num_tokens=rc.num_tokens, texto=rc.text,
-                idioma=doc.idioma,
+                idioma=idioma,
             ))
     n_docs = len({c.doc_id for c in all_chunks})
     print(f"[build] {len(all_chunks)} chunks de {n_docs} documentos en {raw_dir}"

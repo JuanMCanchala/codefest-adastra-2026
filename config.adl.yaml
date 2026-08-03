@@ -1,0 +1,67 @@
+# Configuracion para el CORPUS OFICIAL DE ADL (1826 documentos, 2.93 GB).
+# Es la configuracion de la entrega real.
+
+seed: 42
+
+paths:
+  corpus_raw: "data/adl/corpus"
+  inventario: "data/adl/Indice_Datos_Codefest.xlsx"   # DOC_ID oficial por archivo
+  processed: "data/processed"
+  entrega: "entrega"
+  queries: "data/adl/queries.jsonl"                    # las 50 consultas reales
+  resultados: "entrega/resultados.jsonl"
+
+extraction:
+  pdf_backend: "pymupdf"     # 759 PDFs; docling da mas fidelidad pero ~60s/doc
+  ocr_enabled: false         # solo 8 imagenes en todo el corpus
+  ocr_langs: ["es", "en", "pt"]
+
+cleaning:
+  fix_encoding: true
+  detect_language: false
+  drop_boilerplate: true
+  min_chunk_chars: 40
+
+chunking:
+  strategy: "sentence_window"
+  index_max_tokens: 256
+  overlap_sentences: 1
+  output_max_words: 250
+  respect_sentences: true
+
+encoders:
+  - name: "bge-m3"
+    model_id: "BAAI/bge-m3"
+    weight: 1.0
+    normalize: true
+    use_dense: true
+    use_sparse: true         # CLAVE: las 50 consultas reales estan llenas de
+                             # siglas (NBQR, RPO, GAO, GAOR, GDO) y nombres
+                             # propios (Chocó, Arauca) donde el denso es debil
+    use_colbert: false
+
+faiss:
+  index_type: "IndexFlatIP"
+
+retrieval:
+  top_k_faiss: 100
+  fusion: "rrf"
+  rrf_k: 60
+  final_fragments: 10
+  final_documents: 3
+
+rerank:
+  enabled: true              # mejor configuracion medida (hibrido + reranking)
+  model_id: "BAAI/bge-reranker-v2-m3"
+  top_k_candidates: 50
+
+aggregation:
+  method: "max_pool"
+
+  k_chunks: 30
+
+graph:
+  enabled: false             # activar tras validar el nucleo
+  ner_model: "urchade/gliner_multi-v2.1"
+  entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
+  fuse_into_retrieval: false
