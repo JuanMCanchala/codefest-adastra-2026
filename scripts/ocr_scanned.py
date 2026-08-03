@@ -79,10 +79,34 @@ def ocr_pdf(ocr, pdf_path: Path, dpi: int = 200, max_pages: int = 60) -> str:
     return "\n".join(parts)
 
 
+_OCR = None   # una instancia por proceso trabajador (cargar el modelo es caro)
+
+
+def _worker(task: tuple) -> dict:
+    """Procesa un PDF escaneado. Reutiliza el modelo dentro del mismo proceso."""
+    global _OCR
+    pdf_str, doc_id, cache_dir, dpi = task
+    if _OCR is None:
+        from paddleocr import PaddleOCR
+        _OCR = PaddleOCR(lang="es", enable_mkldnn=False,
+                         use_doc_orientation_classify=False,
+                         use_doc_unwarping=False,
+                         use_textline_orientation=False)
+    try:
+        texto = clean_document(ocr_pdf(_OCR, Path(pdf_str), dpi=dpi))
+    except Exception as exc:
+        return {"doc_id": doc_id, "n_chars": 0, "error": type(exc).__name__}
+    if len(texto) >= 50:
+        (Path(cache_dir) / f"{doc_id}.txt").write_text(texto, encoding="utf-8")
+    return {"doc_id": doc_id, "n_chars": len(texto)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.adl.yaml")
-    ap.add_argument("--dpi", type=int, default=200)
+    ap.add_argument("--dpi", type=int, default=150,
+                    help="150 basta para texto escaneado y es ~2x mas rapido que 200")
+    ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
@@ -100,29 +124,23 @@ def main() -> None:
     if not pending:
         return
 
-    from paddleocr import PaddleOCR
-    print("[ocr] cargando PaddleOCR (es)...")
-    ocr = PaddleOCR(lang="es",
-                    enable_mkldnn=False,
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=False)
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    tasks = [(str(corpus / d["fuente"]), d["doc_id"], str(cache), args.dpi)
+             for d in pending]
+    print(f"[ocr] {args.workers} procesos, {args.dpi} DPI")
 
     t0, recovered, failed = time.time(), 0, 0
-    for i, d in enumerate(pending, 1):
-        pdf = corpus / d["fuente"]
-        try:
-            texto = clean_document(ocr_pdf(ocr, pdf, dpi=args.dpi))
-        except Exception as exc:
-            failed += 1
-            print(f"  [!] {pdf.name}: {type(exc).__name__}")
-            continue
-        if len(texto) >= 50:
-            (cache / f"{d['doc_id']}.txt").write_text(texto, encoding="utf-8")
-            recovered += 1
-        rate = i / max(time.time() - t0, 1e-9)
-        print(f"  {i}/{len(pending)}  {pdf.name[:40]:42s} {len(texto):7d} chars"
-              f"  ETA {(len(pending)-i)/max(rate,1e-9)/60:.0f} min")
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        futures = {pool.submit(_worker, t): t[1] for t in tasks}
+        for i, fut in enumerate(as_completed(futures), 1):
+            r = fut.result()
+            if r.get("error"):
+                failed += 1
+            elif r["n_chars"] >= 50:
+                recovered += 1
+            rate = i / max(time.time() - t0, 1e-9)
+            print(f"  {i}/{len(tasks)}  {r['doc_id']:16s} {r['n_chars']:7d} chars"
+                  f"  ETA {(len(tasks)-i)/max(rate,1e-9)/60:.0f} min")
 
     print(f"\n[ocr] recuperados {recovered}/{len(pending)} | fallos {failed}"
           f" | {(time.time()-t0)/60:.1f} min")

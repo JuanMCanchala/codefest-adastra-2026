@@ -28,6 +28,10 @@ chunking:
   overlap_sentences: 1
   output_max_words: 250
   respect_sentences: true
+  # Tres volcados bibliograficos de PubMed en CSV generan 78.000 fragmentos entre
+  # los tres (el 51% del indice) sobre temas biomedicos ajenos a las 50 consultas.
+  # El limite acota su peso sin excluirlos del corpus.
+  max_chunks_per_doc: 3000
 
 encoders:
   - name: "bge-m3"

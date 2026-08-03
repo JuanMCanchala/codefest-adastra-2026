@@ -48,13 +48,22 @@ def load_pipeline(cfg: dict):
     from src.encoding.encoders import build_encoder, resolve_device
     from src.retrieval.pipeline import Retriever
 
+    from src.encoding.sparse import SparseIndex
+
     device = resolve_device("auto")
     base = Path(cfg["paths"]["entrega"]) / "base_vectorial"
-    stores, encoders = {}, {}
+    stores, encoders, sparse_indexes = {}, {}, {}
     for enc_cfg in cfg["encoders"]:
         name = enc_cfg["name"]
         stores[name] = VectorStore.load(base / f"encoder_{name}")
         encoders[name] = build_encoder(enc_cfg, device=device)
+        # Senal lexical del mismo encoder: decisiva en este corpus, donde las
+        # consultas estan llenas de siglas (NBQR, RPO, GAO, GAOR, GDO) y nombres
+        # propios que el vector denso diluye.
+        sparse = SparseIndex.load(base / f"encoder_{name}")
+        if sparse is not None:
+            sparse_indexes[name] = sparse
+            print(f"[generador] indice disperso {name}: {sparse.n_chunks} chunks")
 
     reranker = None
     if cfg["rerank"]["enabled"]:
@@ -76,7 +85,8 @@ def load_pipeline(cfg: dict):
             graph_retriever = GraphRetriever(graph, ner, gcfg["entity_types"])
 
     return Retriever(stores=stores, encoders=encoders, cfg=cfg,
-                     reranker=reranker, graph_retriever=graph_retriever)
+                     reranker=reranker, graph_retriever=graph_retriever,
+                     sparse_indexes=sparse_indexes)
 
 
 def main() -> None:

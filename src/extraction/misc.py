@@ -100,14 +100,31 @@ def _extract_tabular(path: str | Path, fmt: str) -> str:
 
 
 def _extract_ocr(path: str | Path) -> str:
-    """OCR multilingue sobre imagenes con texto (infografias/graficos)."""
+    """OCR multilingue sobre imagenes con texto (infografias/graficos).
+
+    Usa la misma configuracion segura que scripts/ocr_scanned.py: oneDNN
+    desactivado (PaddlePaddle 3.x lo rompe en Windows) y sin los modelos de
+    orientacion/desdoblado, que no aportan en imagenes ya rectas.
+    """
+    import os
+    os.environ.setdefault("FLAGS_use_mkldnn", "0")
     from paddleocr import PaddleOCR  # import diferido
-    ocr = PaddleOCR(use_angle_cls=True, lang="es")  # 'es' cubre latin ES/EN/PT
-    result = ocr.ocr(str(path), cls=True)
-    lines = []
+
+    ocr = PaddleOCR(lang="es", enable_mkldnn=False,
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False)
+    result = ocr.predict(str(path)) if hasattr(ocr, "predict") else ocr.ocr(str(path))
+    lines: list[str] = []
     for page in result or []:
-        for _box, (text, _conf) in page or []:
-            lines.append(text)
+        if isinstance(page, dict):                      # PaddleOCR v3
+            lines.extend(str(t) for t in page.get("rec_texts", []) if t)
+        elif isinstance(page, (list, tuple)):           # PaddleOCR v2
+            for line in page or []:
+                try:
+                    lines.append(str(line[1][0]))
+                except (IndexError, TypeError):
+                    continue
     return "\n".join(lines)
 
 
