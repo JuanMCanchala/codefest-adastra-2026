@@ -67,9 +67,12 @@ def build(cfg: dict) -> None:
     # 1) extraer + chunkear todo el corpus
     drop_bp = cfg.get("cleaning", {}).get("drop_boilerplate", True)
     pdf_backend = cfg.get("extraction", {}).get("pdf_backend", "docling")
+    ocr_enabled = cfg.get("extraction", {}).get("ocr_enabled", True)
     all_chunks: list[ChunkMeta] = []
     failed: list[tuple[str, str]] = []
+    capped: list[tuple[str, int]] = []
     min_chars = cfg.get("cleaning", {}).get("min_chunk_chars", 0)
+    max_per_doc = cfg.get("chunking", {}).get("max_chunks_per_doc", 0)
     inventory_path = cfg["paths"].get("inventario")
 
     # Si existe la cache de scripts/extract_corpus.py, se reutiliza: extraer el
@@ -79,7 +82,12 @@ def build(cfg: dict) -> None:
     if use_cache:
         print(f"[build] usando cache de texto: {cache_dir}")
 
-    for path, doc_id, fuente, fenomeno in iter_corpus(raw_dir, inventory_path):
+    items = list(iter_corpus(raw_dir, inventory_path))
+    print(f"[build] {len(items)} documentos a procesar", flush=True)
+    for n_doc, (path, doc_id, fuente, fenomeno) in enumerate(items, 1):
+        if n_doc % 200 == 0:
+            print(f"[build]   chunking {n_doc}/{len(items)}  ({len(all_chunks)} fragmentos)",
+                  flush=True)
         # Un documento corrupto no debe tumbar la indexacion del corpus completo.
         try:
             cached = cache_dir / f"{doc_id}.txt" if use_cache else None
@@ -89,7 +97,7 @@ def build(cfg: dict) -> None:
                 idioma = None
             else:
                 doc = extract(path, doc_id=doc_id, fuente=fuente, fenomeno=fenomeno,
-                              pdf_backend=pdf_backend)
+                              pdf_backend=pdf_backend, ocr_enabled=ocr_enabled)
                 texto = clean_document(doc.text, drop_boilerplate=drop_bp)  # Seccion 2.2
                 formato, idioma = doc.formato, doc.idioma
             raw_chunks = chunk_document(
@@ -102,6 +110,12 @@ def build(cfg: dict) -> None:
             print(f"[build] OMITIDO {fuente}: {type(exc).__name__}")
             continue
         raw_chunks = [rc for rc in raw_chunks if len(rc.text) >= min_chars]
+        # Valvula de seguridad: unos pocos documentos tabulares (volcados
+        # bibliograficos en CSV) generan decenas de miles de fragmentos y por si
+        # solos dominarian el indice. Se limita su aporte sin excluirlos.
+        if max_per_doc and len(raw_chunks) > max_per_doc:
+            capped.append((fuente, len(raw_chunks)))
+            raw_chunks = raw_chunks[:max_per_doc]
         for rc in raw_chunks:
             all_chunks.append(ChunkMeta(
                 doc_id=doc_id,
@@ -113,6 +127,10 @@ def build(cfg: dict) -> None:
     n_docs = len({c.doc_id for c in all_chunks})
     print(f"[build] {len(all_chunks)} chunks de {n_docs} documentos en {raw_dir}"
           + (f" ({len(failed)} omitidos)" if failed else ""))
+    if capped:
+        print(f"[build] {len(capped)} documentos limitados a {max_per_doc} fragmentos:")
+        for fuente, n in sorted(capped, key=lambda x: -x[1])[:5]:
+            print(f"         {n:7d} -> {max_per_doc}  {fuente[-64:]}")
 
     texts = [c.texto for c in all_chunks]
     metadata = [c.to_json() for c in all_chunks]

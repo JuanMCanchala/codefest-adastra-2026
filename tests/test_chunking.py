@@ -51,3 +51,31 @@ def test_overlap_repeats_last_sentence():
     chunks = chunk_document(text, index_max_tokens=12, overlap_sentences=1)
     # con solapamiento, deberia haber mas de un chunk y contenido repetido
     assert len(chunks) >= 2
+
+
+# --- Guarda de abreviaturas del segmentador rapido (requisito 3.3) ---
+
+def test_no_corta_en_abreviatura():
+    from src.chunking.sentences import segment_sentences
+    s = segment_sentences("El Dr. Ramirez presento el informe. Fue aprobado.", lang="es")
+    assert len(s) == 2
+    assert "Dr. Ramirez" in s[0]
+
+
+def test_no_corta_en_inicial():
+    from src.chunking.sentences import segment_sentences
+    s = segment_sentences("El autor J. Perez lo documento. Nadie lo refuto.", lang="es")
+    assert len(s) == 2
+    assert "J. Perez" in s[0]
+
+
+def test_no_corta_en_numeracion():
+    from src.chunking.sentences import segment_sentences
+    s = segment_sentences("Ver la Fig. 3 del anexo. Alli esta el detalle.", lang="es")
+    assert len(s) == 2
+
+
+def test_si_corta_oraciones_reales():
+    from src.chunking.sentences import segment_sentences
+    s = segment_sentences("Primera oracion completa. Segunda oracion. Tercera oracion.", lang="es")
+    assert len(s) == 3

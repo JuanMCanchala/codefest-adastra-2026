@@ -44,13 +44,18 @@ def detect_format(path: str | Path) -> str:
 
 
 def extract(path: str | Path, doc_id: str, fuente: str, fenomeno: int = 0,
-            pdf_backend: str = "docling") -> Document:
+            pdf_backend: str = "docling", ocr_enabled: bool = True) -> Document:
     """Dispatch por formato. Importa el extractor concreto de forma diferida.
 
     `pdf_backend` viene de config.extraction.pdf_backend: 'docling' (mejor
     fidelidad de layout/tablas, mas lento) o 'pymupdf' (rapido, texto plano).
+    `ocr_enabled` viene de config.extraction.ocr_enabled: con OCR desactivado las
+    imagenes devuelven texto vacio en lugar de cargar el motor de OCR.
     """
     fmt = detect_format(path)
+    if fmt == "image" and not ocr_enabled:
+        return Document(doc_id=doc_id, fuente=fuente, formato=fmt, text="",
+                        fenomeno=fenomeno)
     if fmt == "pdf":
         from .pdf import extract_pdf
         text = extract_pdf(path, backend=pdf_backend)
