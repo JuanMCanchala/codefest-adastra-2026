@@ -52,9 +52,18 @@ def iter_corpus(raw_dir: Path, inventory_path: str | Path | None = None):
         entry = inventory.get(fuente)
         if entry is not None:
             yield path, entry.doc_id, fuente, entry.fenomeno
-        else:
-            from src.corpus_adl import fenomeno_from_path
-            yield path, f"DOC-{i:05d}", fuente, fenomeno_from_path(fuente)
+            continue
+        if inventory:
+            # El inventario DEFINE el corpus. Todo lo que no este en el no es un
+            # documento del reto: el paquete de ADL incluye ademas el PDF con las
+            # 50 consultas de evaluacion y el propio indice de datos. Indexar el
+            # PDF de preguntas lo hacia aparecer en el top-3 de 20 de las 50
+            # consultas -por coincidencia literal con el texto de la consulta-,
+            # gastando uno de los tres huecos de documento.
+            print(f"[build] fuera del inventario, omitido: {fuente[:70]}")
+            continue
+        from src.corpus_adl import fenomeno_from_path
+        yield path, f"DOC-{i:05d}", fuente, fenomeno_from_path(fuente)
 
 
 def build(cfg: dict) -> None:
