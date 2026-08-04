@@ -270,21 +270,58 @@ Este arnés detectó dos defectos que habrían costado puntos y que ninguna insp
 revelado: el separador de rutas en \texttt{fuente} y un error en el ranking ideal del NDCG que
 producía valores superiores a 1.
 
-\subsection{Corpus de validación}
+\subsection{Corpus de validación previo}
 
-Para validar en condiciones realistas antes de disponer del corpus oficial, reunimos
-\textbf{50 documentos públicos auténticos} (111\,MB): artículos de arXiv sobre los tres fenómenos,
-el \emph{ESA Space Environment Report}, el informe IADC de UNOOSA y el \emph{Panorama Social} de
-la CEPAL. El conjunto reproduce las dificultades del escenario real: documentos \textbf{largos}
-(el informe de la CEPAL supera los 980\,000 caracteres y genera 654 fragmentos por sí solo),
-\textbf{multilingües} y con estructura académica e institucional real.
+Antes de disponer del corpus oficial reunimos \textbf{151 documentos públicos auténticos}
+(artículos de arXiv, \emph{ESA Space Environment Report}, informe IADC de UNOOSA, \emph{Panorama
+Social} de la CEPAL) y construimos 34 consultas con juicios de relevancia derivados de una señal
+externa e independiente: el propio buscador de arXiv. Si una consulta devolvió un artículo, ese
+artículo es relevante para la consulta en lenguaje natural equivalente, y su posición da el grado.
+Es supervisión débil, pero ajena a nuestro sistema, lo que evita el sesgo circular de evaluarnos
+con juicios propios.
 
-\textbf{Juicios de relevancia.} Aprovechamos una señal existente e independiente: el buscador de
-arXiv. Si una consulta devolvió un artículo, ese artículo es relevante para la consulta en lenguaje
-natural equivalente, y su \emph{posición} da el grado (1–2 $\rightarrow$ 3; 3–4 $\rightarrow$ 2;
-resto $\rightarrow$ 1). Es supervisión débil, pero externa a nuestro sistema, lo que evita el sesgo
-circular de evaluarnos con juicios propios. Las consultas se redactaron deliberadamente en idiomas
-distintos al de los documentos para forzar el escenario cross-lingual.
+\subsection{El corpus oficial}
+
+El corpus entregado consta de \textbf{1\,826 documentos} (2,93\,GB) de \textbf{20 observatorios}.
+Difería de nuestras previsiones en tres puntos que obligaron a adaptar el sistema:
+
+\begin{itemize}
+\item \textbf{El formato dominante es JSON} (964 archivos, 52\,\%), no PDF (759). Los esquemas son
+heterogéneos —artículos con \texttt{body\_text}, páginas con \texttt{sections}, catálogos de
+fichas—, así que reescribimos el extractor para recorrer cualquier estructura y recoger todo el
+texto útil descartando metadata técnica, en lugar de buscar un conjunto fijo de claves.
+\item \textbf{ADL entrega un inventario oficial} con un \texttt{DOC\_ID} único por archivo. Usarlo
+elimina la mayor incertidumbre del reto: la evaluación a nivel documento empareja por
+\texttt{fuente}, y así nos apoyamos en los identificadores del organizador en vez de inventarlos.
+\item \textbf{51 PDFs no tienen capa de texto.} Son escaneados y la extracción devolvía cadena
+vacía \emph{sin error visible}. 47 son informes de Alertas Tempranas (Defensoría del Pueblo), el
+observatorio más relevante para 18 de las 50 consultas. Se recuperaron mediante OCR.
+\end{itemize}
+
+\textbf{Resultado de la indexación:} 82\,673 fragmentos de 1\,688 documentos, metadata alineada
+1:1 con el índice FAISS, índice disperso con 59\,673 tokens únicos, y \texttt{resultados.jsonl}
+con \textbf{cero errores de esquema}.
+
+\subsection{Dos hallazgos que solo aparecen con el corpus real}
+
+\textbf{Contaminación por el archivo de consultas.} El paquete de ADL incluye, junto al corpus, el
+PDF con las 50 consultas de evaluación. Al indexarlo como un documento más, emparejaba de forma
+trivial —contiene el texto literal de cada consulta— y aparecía en el top-3 de \textbf{20 de las 50
+consultas}, gastando uno de los tres únicos huecos de documento. La regla que lo resuelve es
+\textbf{el inventario oficial define el corpus}: todo archivo ausente de él se omite. Contaminación
+medida: 20/50 $\rightarrow$ 0/50.
+
+\textbf{Concentración de fragmentos.} Tres volcados bibliográficos en CSV generaban 78\,000
+fragmentos entre los tres —el 51\,\% del índice— sobre biomedicina ajena a las consultas. Un
+límite configurable por documento acota su peso sin excluirlos del corpus.
+
+\subsection{Selección del motor de OCR}
+
+Medimos dos motores sobre la misma página escaneada. PaddleOCR requiere desactivar oneDNN para no
+fallar en Windows, lo que elimina sus kernels optimizados: \textbf{115\,s por página}, es decir
+20 horas para las 648 páginas escaneadas del corpus. EasyOCR, que se apoya en la misma pila de
+GPU ya empleada por los encoders, baja a \textbf{6,5\,s por página} (48 minutos en total) con
+calidad equivalente. Ambos son modelos de detección y reconocimiento clásicos, no generativos.
 
 \subsection{Resultados}
 

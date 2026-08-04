@@ -82,24 +82,49 @@ class Retriever:
             candidates = [(cid, meta_by_id[cid]["texto"]) for cid, _ in top if cid in meta_by_id]
             fused = self.reranker.rerank(query, candidates)
 
-        # 3) fragmentos: top-10 respetando <=250 palabras y oraciones completas
+        # 3) fragmentos: top-10 respetando <=250 palabras y oraciones completas.
+        # Se descartan textos repetidos: el corpus contiene documentos casi
+        # identicos (por ejemplo, el mismo informe en varios idiomas o ediciones),
+        # asi que sin deduplicar hasta 3 de los 10 huecos se gastaban en texto
+        # duplicado, que no puede aportar relevancia nueva al NDCG.
+        # Los fragmentos demasiado cortos ('3 (2016).', 'counter space weapons.')
+        # son notas al pie o restos de encabezado: ocupan un hueco del top-10 sin
+        # poder aportar relevancia. Se posponen y solo se usan si no hay
+        # suficientes fragmentos sustanciales para completar los 10 exigidos.
+        min_words = rcfg.get("min_fragment_words", 20)
+        n_target = rcfg["final_fragments"]
         fragments: list[FragmentResult] = []
+        reserva: list[tuple[str, str, str]] = []
+        seen_texts: set[str] = set()
+
         for chunk_id, _score in fused:
             if chunk_id not in meta_by_id:
                 continue
             meta = meta_by_id[chunk_id]
             for sub in split_for_output(meta["texto"], lang=meta.get("idioma", "es"),
                                         max_words=self.cfg["chunking"]["output_max_words"]):
+                key = " ".join(sub.split()).lower()
+                if not key or key in seen_texts:
+                    continue
+                seen_texts.add(key)
+                if len(sub.split()) < min_words:
+                    reserva.append((chunk_id, meta["doc_id"], sub))
+                    continue
                 fragments.append(FragmentResult(
-                    rank=len(fragments) + 1,
-                    chunk_id=chunk_id,            # chunk_id original (trazabilidad)
-                    doc_id=meta["doc_id"],
-                    text=sub,
+                    rank=len(fragments) + 1, chunk_id=chunk_id,
+                    doc_id=meta["doc_id"], text=sub,
                 ))
-                if len(fragments) >= rcfg["final_fragments"]:
+                if len(fragments) >= n_target:
                     break
-            if len(fragments) >= rcfg["final_fragments"]:
+            if len(fragments) >= n_target:
                 break
+
+        for chunk_id, doc_id, sub in reserva:      # completar si faltan
+            if len(fragments) >= n_target:
+                break
+            fragments.append(FragmentResult(
+                rank=len(fragments) + 1, chunk_id=chunk_id, doc_id=doc_id, text=sub,
+            ))
 
         # 4) documentos: agregacion chunk->doc (Seccion 8.6) top-3
         scored_chunks = [

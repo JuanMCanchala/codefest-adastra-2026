@@ -59,3 +59,38 @@ def test_aggregate_sum_can_reorder():
     docs = dict(aggregate_documents(chunks, method="sum", top_n=3))
     assert math.isclose(docs["DOC-B"], 1.05)  # 0.55 + 0.5 supera a A (0.6)
     assert docs["DOC-B"] > docs["DOC-A"]
+
+
+def test_fragmentos_no_se_repiten_en_una_consulta():
+    """El corpus tiene documentos casi identicos (mismo informe en varios idiomas
+    o ediciones). Sin deduplicar, hasta 3 de los 10 huecos se gastaban en texto
+    repetido, que no puede aportar relevancia nueva al NDCG@10."""
+    from src.retrieval.pipeline import Retriever
+
+    texto = "Un fragmento identico que aparece en dos documentos distintos."
+    metadata = [
+        {"chunk_id": "c1", "doc_id": "D1", "texto": texto, "fuente": "a.pdf"},
+        {"chunk_id": "c2", "doc_id": "D2", "texto": texto, "fuente": "b.pdf"},
+        {"chunk_id": "c3", "doc_id": "D3", "texto": "Un fragmento distinto.", "fuente": "c.pdf"},
+    ]
+
+    class FakeStore:
+        def __init__(self, meta): self.metadata = meta
+        def search(self, q, top_k): return [[1.0, 0.9, 0.8]], [[0, 1, 2]]
+
+    class FakeEncoder:
+        def encode(self, texts, is_query=False): return [[0.0]]
+
+    cfg = {
+        "retrieval": {"top_k_faiss": 10, "fusion": "rrf", "rrf_k": 60,
+                      "final_fragments": 10, "final_documents": 3},
+        "rerank": {"enabled": False},
+        "chunking": {"output_max_words": 250},
+        "aggregation": {"method": "max_pool", "k_chunks": 10},
+        "graph": {},
+    }
+    r = Retriever({"e": FakeStore(metadata)}, {"e": FakeEncoder()}, cfg)
+    res = r.retrieve("q001", "consulta")
+    textos = [f.text for f in res.fragments]
+    assert len(textos) == len(set(textos)), "hay fragmentos repetidos"
+    assert len(textos) == 2, "deberia quedar 1 de los duplicados + el distinto"

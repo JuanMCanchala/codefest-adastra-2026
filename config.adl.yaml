@@ -53,6 +53,9 @@ retrieval:
   rrf_k: 60
   final_fragments: 10
   final_documents: 3
+  # Descarta notas al pie y restos de encabezado del top-10; solo se usan
+  # como relleno si no hay 10 fragmentos sustanciales.
+  min_fragment_words: 20
 
 rerank:
   enabled: true              # mejor configuracion medida (hibrido + reranking)
