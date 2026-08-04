@@ -21,6 +21,39 @@ Repositorio: `JuanMCanchala/codefest-adastra-2026` · rama principal `main`
 
 ---
 
+## El corpus oficial de ADL (llegó el 3-ago-2026)
+
+**Qué trajo:** 1826 documentos (2,93 GB) de 20 observatorios, más dos regalos que no esperábamos:
+el **PDF con las 50 consultas reales** de evaluación y un **inventario oficial** (`DOC_ID` único
+por archivo).
+
+**En qué difería de nuestras suposiciones:**
+
+| Asumíamos | Realidad |
+|---|---|
+| Formato dominante PDF | **JSON (964, el 52%)**; PDF 759 |
+| Consultas repartidas ES/EN/PT | **Las 50 en español** |
+| `doc_id` a inventar por nosotros | **ADL lo entrega** |
+| Rutas `fenomeno1/` | `F1_`, `F2_`, `F3_` |
+
+**El inventario elimina el mayor riesgo del reto.** La evaluación a nivel documento empareja por
+`fuente` (Sección 10.2.1); con el inventario usamos los identificadores del propio organizador en
+vez de adivinarlos. 1826/1839 archivos emparejados (99%).
+
+**Las consultas reales validan la apuesta del híbrido.** Están llenas de siglas y nombres propios
+—`NBQR`, `RPO`, `GAO`, `GAOR`, `GDO`, `Chocó`, `Arauca`— justo donde el vector denso se diluye y
+la señal lexical rinde.
+
+**Resultado del pipeline sobre el corpus real:** 82 673 fragmentos de 1688 documentos, metadata
+alineada 1:1, índice disperso con 59 673 tokens únicos, y `resultados.jsonl` de 50 líneas con
+**cero errores de esquema**.
+
+**Adaptaciones necesarias:** extractor de JSON reescrito (los esquemas son heterogéneos y el
+anterior perdía observatorios enteros), extractor de PBF implementado, extracción paralela con
+caché (2,7 h → 1,2 min) y los cinco defectos C8–C12 documentados abajo.
+
+---
+
 ## Decisiones estratégicas (las que definieron el rumbo)
 
 ### D1 — Priorizar extracción sobre afinado del recuperador
@@ -79,6 +112,52 @@ en la consulta en portugués (1.000 vs 0.877).
 - **Síntoma:** `AttributeError: XLMRobertaTokenizer has no attribute prepare_for_model`.
 - **Causa:** incompatibilidad entre `FlagEmbedding.FlagReranker` y la versión de `transformers`.
 - **Fix:** se cambió a `CrossEncoder` de sentence-transformers — **mismo modelo**, cargador robusto.
+
+### C12 — El PDF con las 50 consultas se indexó como documento del corpus
+- **Síntoma:** en la revisión cualitativa, `Extracto_Preguntas_50_v2.pdf` aparecía como documento
+  nº 1 para q001.
+- **Causa:** el paquete de ADL incluye, junto al corpus, el PDF con las consultas de evaluación y
+  el inventario. Al descomprimir todo en la misma carpeta quedaron mezclados.
+- **Impacto medido:** aparecía en el top-3 de **20 de las 50 consultas (40%)** —empareja de forma
+  trivial porque contiene el texto literal de cada consulta— gastando uno de los **tres únicos**
+  huecos de documento. En esas consultas el F1@3 habría caído hasta un tercio.
+- **Fix:** el **inventario oficial define el corpus**. Todo archivo ausente del inventario se
+  omite y se reporta en el log. Quedaron fuera 13 archivos: el PDF de preguntas, el inventario,
+  un xlsx de organización y 10 catálogos `*_catalogo.json` / `*_registro.json` que solo contienen
+  URLs, hashes y títulos (verificado uno a uno: sin contenido analizable).
+- **Verificación:** contaminación 20/50 → **0/50**.
+
+### C11 — `pysbd` hacía inviable el corpus real (8 horas de segmentación)
+- **Síntoma:** el build quedaba sin avanzar durante horas sobre el corpus de ADL.
+- **Diagnóstico inicial equivocado:** se midió el chunking del corpus completo y dio 20 s… pero la
+  medición se ejecutó con el **Python del sistema, que no tiene pysbd instalado** y usaba el
+  segmentador de respaldo. El venv sí lo tiene. **Lección: medir con el mismo intérprete que
+  ejecuta el proceso.**
+- **Cifras:** pysbd rinde **7 K chars/s**; el segmentador por reglas, **64 M chars/s**. Sobre los
+  204 MB del corpus son ~8 horas frente a ~3 segundos, con prácticamente las mismas oraciones
+  (1047 vs 1157).
+- **Fix:** el segmentador por reglas pasa a ser el predeterminado. Pero el regex original habría
+  cortado en `Dr.`, `Fig. 3` o iniciales, generando oraciones incompletas que la Sección 3.3
+  **prohíbe**; se añadió una guarda de abreviaturas, iniciales y numeración, con tests. Un archivo
+  que tardaba 75 s pasó a 0,10 s.
+
+### C10 — Un documento de 48 MB bloqueaba la segmentación
+- 4 archivos concentraban 103 MB de los 204 del corpus. Pasar una cadena de 48 MB al segmentador
+  dejaba el proceso efectivamente colgado.
+- **Fix:** segmentación por bloques de 100 KB cortando en saltos de línea (preserva párrafos y
+  filas, no parte oraciones).
+
+### C9 — Seis documentos generaban el 57% del índice
+- Tres volcados bibliográficos de PubMed en CSV producían **78 000 fragmentos** entre los tres,
+  sobre biomedicina (cromatografía, vasos retinianos) ajena a las 50 consultas.
+- **Fix:** `chunking.max_chunks_per_doc` (3000). Solo afecta a 4 documentos de 1838 y queda
+  registrado en el log del build.
+
+### C8 — `extraction.ocr_enabled` se ignoraba
+- El config desactivaba el OCR, pero `extract()` llamaba igual a PaddleOCR con las 8 imágenes del
+  corpus, que se cuelga por un bug de oneDNN en Windows. El build quedaba bloqueado sin error.
+- **Fix:** `extract()` respeta la opción; además `_extract_ocr` se migró a la API v3 de PaddleOCR
+  (era código de la v2, nunca ejercitado hasta este corpus).
 
 ### C7 — torch CUDA sobrescrito en silencio por el build de CPU
 - **Síntoma:** `torch.cuda.is_available()` devolvía `False` pese a haber GPU libre. Todo el
