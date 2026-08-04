@@ -5,10 +5,16 @@ ellos son informes de Alertas Tempranas, el observatorio colombiano cuyos
 documentos son los mas relevantes para las consultas q033-q050 (control
 territorial, GAO/GAOR/GDO, mineria ilegal). Sin OCR, el sistema no los ve.
 
-Rasteriza cada pagina con PyMuPDF y la pasa por PaddleOCR (modelo clasico de
-deteccion+reconocimiento, NO generativo: no entra en la zona gris del
-reglamento). El texto resultante se escribe en la misma cache que usa
-build_index.py, asi que basta reindexar despues.
+Rasteriza cada pagina con PyMuPDF y la pasa por EasyOCR sobre GPU (deteccion
+CRAFT + reconocimiento CRNN: modelos clasicos, NO generativos, asi que no entran
+en la zona gris del reglamento). El texto resultante se escribe en la misma
+cache que usa build_index.py, asi que basta reindexar despues.
+
+Se descarto PaddleOCR tras medirlo: en esta maquina tarda 115 s por pagina
+(20 h para las 648 paginas del corpus) porque hubo que desactivar oneDNN para
+evitar un fallo en Windows, y eso elimina sus kernels optimizados. EasyOCR usa
+torch y la GPU -la misma pila ya verificada- y baja a 6,5 s por pagina (71 min),
+con calidad equivalente sobre la misma pagina de prueba.
 
     python scripts/ocr_scanned.py --config config.adl.yaml
 """
@@ -55,8 +61,8 @@ def _texts_from_result(res) -> list[str]:
     return out
 
 
-def ocr_pdf(ocr, pdf_path: Path, dpi: int = 200, max_pages: int = 60) -> str:
-    """Rasteriza y reconoce el texto de un PDF escaneado."""
+def ocr_pdf(reader, pdf_path: Path, dpi: int = 150, max_pages: int = 80) -> str:
+    """Rasteriza el PDF y reconoce el texto de cada pagina con EasyOCR."""
     import fitz
 
     doc = fitz.open(str(pdf_path))
@@ -69,14 +75,14 @@ def ocr_pdf(ocr, pdf_path: Path, dpi: int = 200, max_pages: int = 60) -> str:
             img = tmpdir / f"p{i:03d}.png"
             page.get_pixmap(dpi=dpi).save(str(img))
             try:
-                res = ocr.predict(str(img)) if hasattr(ocr, "predict") else ocr.ocr(str(img))
+                # detail=0 devuelve solo las cadenas reconocidas, en orden de lectura
+                parts.extend(reader.readtext(str(img), detail=0, paragraph=True))
             except Exception:
-                continue
-            parts.extend(_texts_from_result(res))
+                pass
             img.unlink(missing_ok=True)
     finally:
         doc.close()
-    return "\n".join(parts)
+    return "\n".join(str(p) for p in parts)
 
 
 _OCR = None   # una instancia por proceso trabajador (cargar el modelo es caro)
@@ -124,23 +130,27 @@ def main() -> None:
     if not pending:
         return
 
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    tasks = [(str(corpus / d["fuente"]), d["doc_id"], str(cache), args.dpi)
-             for d in pending]
-    print(f"[ocr] {args.workers} procesos, {args.dpi} DPI")
+    import torch
+    import easyocr
+    use_gpu = torch.cuda.is_available()
+    print(f"[ocr] EasyOCR en {'GPU' if use_gpu else 'CPU'}, {args.dpi} DPI")
+    reader = easyocr.Reader(["es"], gpu=use_gpu, verbose=False)
 
     t0, recovered, failed = time.time(), 0, 0
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        futures = {pool.submit(_worker, t): t[1] for t in tasks}
-        for i, fut in enumerate(as_completed(futures), 1):
-            r = fut.result()
-            if r.get("error"):
-                failed += 1
-            elif r["n_chars"] >= 50:
-                recovered += 1
-            rate = i / max(time.time() - t0, 1e-9)
-            print(f"  {i}/{len(tasks)}  {r['doc_id']:16s} {r['n_chars']:7d} chars"
-                  f"  ETA {(len(tasks)-i)/max(rate,1e-9)/60:.0f} min")
+    for i, d in enumerate(pending, 1):
+        pdf = corpus / d["fuente"]
+        try:
+            texto = clean_document(ocr_pdf(reader, pdf, dpi=args.dpi))
+        except Exception as exc:
+            failed += 1
+            print(f"  [!] {pdf.name}: {type(exc).__name__}", flush=True)
+            continue
+        if len(texto) >= 50:
+            (cache / f"{d['doc_id']}.txt").write_text(texto, encoding="utf-8")
+            recovered += 1
+        rate = i / max(time.time() - t0, 1e-9)
+        print(f"  {i}/{len(pending)}  {d['doc_id']:16s} {len(texto):7d} chars"
+              f"  ETA {(len(pending)-i)/max(rate,1e-9)/60:.0f} min", flush=True)
 
     print(f"\n[ocr] recuperados {recovered}/{len(pending)} | fallos {failed}"
           f" | {(time.time()-t0)/60:.1f} min")

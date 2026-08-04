@@ -51,6 +51,8 @@ def _is_false_break(left: str) -> bool:
         return False
     if token in _ABBREV:
         return True
+    if "." in token:               # siglas con puntos internos: U.N., U.S., EE.UU.
+        return True
     if len(token) == 1:            # inicial de nombre o item de lista
         return True
     if token.isdigit():            # numeracion: "1." , "2026."
