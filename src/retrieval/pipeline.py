@@ -29,6 +29,8 @@ class Retriever:
         self.reranker = reranker
         self.graph_retriever = graph_retriever   # GraphRetriever opcional (bonus)
         self.sparse_indexes = sparse_indexes or {}
+        self._chunk_to_idx: dict[str, int] | None = None   # chunk_id -> id interno FAISS
+        self._centroid_cache: dict[str, object] = {}
 
     def _search_one(self, name: str, query: str) -> list[tuple[str, float]]:
         """Ranking [(chunk_id, score)] de un encoder para la consulta."""
@@ -43,6 +45,78 @@ class Retriever:
             meta = store.metadata[idx]
             out.append((meta["chunk_id"], float(score)))
         return out
+
+    def _doc_centroid(self, doc_id: str, scored_chunks: list) -> "object | None":
+        """Vector representativo de un documento: media de los vectores de sus
+        fragmentos recuperados, tomados del propio indice FAISS."""
+        import numpy as np
+
+        if doc_id in self._centroid_cache:
+            return self._centroid_cache[doc_id]
+        store = next(iter(self.stores.values()), None)
+        if store is None:
+            return None
+        if self._chunk_to_idx is None:
+            self._chunk_to_idx = {m["chunk_id"]: i for i, m in enumerate(store.metadata)}
+
+        vecs = []
+        for cid, did, _score in scored_chunks:
+            if did != doc_id:
+                continue
+            idx = self._chunk_to_idx.get(cid)
+            if idx is None:
+                continue
+            try:
+                vecs.append(store.index.reconstruct(int(idx)))
+            except Exception:
+                continue
+            if len(vecs) >= 5:          # bastan unos pocos para caracterizarlo
+                break
+        if not vecs:
+            self._centroid_cache[doc_id] = None
+            return None
+        c = np.mean(np.asarray(vecs, dtype=np.float32), axis=0)
+        norm = float(np.linalg.norm(c))
+        c = c / norm if norm else c
+        self._centroid_cache[doc_id] = c
+        return c
+
+    def _select_diverse_docs(self, ranked_docs, scored_chunks, n_docs: int) -> list[str]:
+        """Elige los n_docs mejores evitando documentos casi identicos.
+
+        El corpus contiene el mismo informe en varios idiomas y ediciones (por
+        ejemplo el Global Counterspace Report de SWF en español 2025, español
+        2026 y portugues 2026). Sin este filtro, 14 de las 50 consultas gastaban
+        sus tres huecos en versiones del mismo documento, lo que limita el F1@3 a
+        un unico acierto posible. Los nombres de archivo no bastan para
+        detectarlo; se comparan los vectores, que al ser cross-lingual acercan
+        las traducciones de un mismo texto.
+        """
+        import numpy as np
+
+        umbral = self.cfg.get("retrieval", {}).get("doc_dedup_threshold", 0.92)
+        elegidos: list[str] = []
+        centroides: list = []
+        descartados: list[str] = []
+
+        for doc_id, _score in ranked_docs:
+            if len(elegidos) >= n_docs:
+                break
+            c = self._doc_centroid(doc_id, scored_chunks)
+            if c is not None and centroides:
+                if max(float(np.dot(c, o)) for o in centroides) >= umbral:
+                    descartados.append(doc_id)
+                    continue
+            elegidos.append(doc_id)
+            if c is not None:
+                centroides.append(c)
+
+        # si el filtro dejo huecos, completar con los descartados por orden
+        for doc_id in descartados:
+            if len(elegidos) >= n_docs:
+                break
+            elegidos.append(doc_id)
+        return elegidos[:n_docs]
 
     def retrieve(self, query_id: str, query: str) -> QueryResult:
         rcfg = self.cfg["retrieval"]
@@ -132,11 +206,15 @@ class Retriever:
             for cid, score in fused if cid in meta_by_id
         ]
         acfg = self.cfg["aggregation"]
-        doc_scores = aggregate_documents(
+        n_docs = rcfg["final_documents"]
+        # Se piden mas candidatos de los necesarios para poder descartar
+        # duplicados sin quedarse corto.
+        ranked_docs = aggregate_documents(
             scored_chunks, method=acfg["method"],
-            top_n=rcfg["final_documents"], k_chunks=acfg["k_chunks"],
+            top_n=n_docs * 6, k_chunks=acfg["k_chunks"],
         )
+        elegidos = self._select_diverse_docs(ranked_docs, scored_chunks, n_docs)
         documents = [DocResult(rank=i + 1, doc_id=doc_id)
-                     for i, (doc_id, _s) in enumerate(doc_scores)]
+                     for i, doc_id in enumerate(elegidos)]
 
         return QueryResult(query_id=query_id, documents=documents, fragments=fragments)
