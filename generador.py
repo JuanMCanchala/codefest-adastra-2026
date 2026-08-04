@@ -106,9 +106,19 @@ def main() -> None:
     retriever = load_pipeline(cfg)
 
     results = []
-    for q in queries:
+    for i, q in enumerate(queries, 1):
         qr = retriever.retrieve(q["query_id"], q["text"])
         results.append(qr.to_json())
+        print(f"[generador] {i}/{len(queries)}  {q['query_id']}", flush=True)
+        # El encoder denso y el cross-encoder comparten una GPU de 8 GB; liberar
+        # la cache entre consultas evita que la memoria se acumule.
+        if i % 5 == 0:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
 
     # Validacion estricta antes de escribir (spec 9.3.2)
     errors = validate_resultados(results, expected_lines=len(queries))
