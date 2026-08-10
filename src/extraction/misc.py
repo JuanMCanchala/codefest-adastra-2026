@@ -88,9 +88,22 @@ def _extract_json(path: str | Path) -> str:
 
 def _extract_tabular(path: str | Path, fmt: str) -> str:
     """Cada fila -> 'columna: valor' separados por delimitador (spec CSV/XLSX).
-    Cada fila es una unidad de fragmentacion independiente."""
+    Cada fila es una unidad de fragmentacion independiente.
+
+    No todos los .csv del corpus son csv: AIINDEX_lit-covid-ai-covid-literature
+    esta separado por tabuladores, y el lector estricto de pandas lo rechazaba con
+    ParserError, dejando fuera del indice sus 15.115 registros. Ante un fallo se
+    reintenta dejando que pandas deduzca el separador y descartando las filas
+    malformadas: es preferible indexar un documento incompleto que perderlo.
+    """
     import pandas as pd  # import diferido
-    df = pd.read_csv(path) if fmt == "csv" else pd.read_excel(path)
+    if fmt == "xlsx":
+        df = pd.read_excel(path)
+    else:
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            df = pd.read_csv(path, sep=None, engine="python", on_bad_lines="skip")
     rows = []
     for _, row in df.iterrows():
         cells = [f"{col}: {val}" for col, val in row.items() if str(val).strip() and str(val) != "nan"]
@@ -99,51 +112,65 @@ def _extract_tabular(path: str | Path, fmt: str) -> str:
     return "\n".join(rows)
 
 
+_OCR_READER = None
+
+
 def _extract_ocr(path: str | Path) -> str:
-    """OCR multilingue sobre imagenes con texto (infografias/graficos).
+    """OCR sobre imagenes con texto (infografias, capturas, graficos).
 
-    Usa la misma configuracion segura que scripts/ocr_scanned.py: oneDNN
-    desactivado (PaddlePaddle 3.x lo rompe en Windows) y sin los modelos de
-    orientacion/desdoblado, que no aportan en imagenes ya rectas.
+    Usa EasyOCR sobre GPU, el mismo motor ya medido en scripts/ocr_scanned.py:
+    deteccion CRAFT + reconocimiento CRNN, modelos clasicos y NO generativos, asi
+    que no entran en la restriccion de la Seccion 8.3. Se descarto PaddleOCR
+    porque en Windows obliga a desactivar oneDNN y pasa de 6,5 s a 115 s por
+    imagen.
+
+    El lector se construye una sola vez por proceso: cargar los pesos cuesta
+    varios segundos y hacerlo por imagen dominaria el tiempo total.
     """
-    import os
-    os.environ.setdefault("FLAGS_use_mkldnn", "0")
-    from paddleocr import PaddleOCR  # import diferido
-
-    ocr = PaddleOCR(lang="es", enable_mkldnn=False,
-                    use_doc_orientation_classify=False,
-                    use_doc_unwarping=False,
-                    use_textline_orientation=False)
-    result = ocr.predict(str(path)) if hasattr(ocr, "predict") else ocr.ocr(str(path))
-    lines: list[str] = []
-    for page in result or []:
-        if isinstance(page, dict):                      # PaddleOCR v3
-            lines.extend(str(t) for t in page.get("rec_texts", []) if t)
-        elif isinstance(page, (list, tuple)):           # PaddleOCR v2
-            for line in page or []:
-                try:
-                    lines.append(str(line[1][0]))
-                except (IndexError, TypeError):
-                    continue
-    return "\n".join(lines)
+    global _OCR_READER
+    if _OCR_READER is None:
+        import easyocr  # import diferido
+        import torch
+        _OCR_READER = easyocr.Reader(["es", "en"], gpu=torch.cuda.is_available(),
+                                     verbose=False)
+    try:
+        lineas = _OCR_READER.readtext(str(path), detail=0, paragraph=True)
+    except Exception:
+        return ""
+    return "\n".join(str(t) for t in lineas if t)
 
 
 def _extract_pbf(path: str | Path) -> str:
-    """Extrae los atributos de un vector tile (.pbf) como pares 'clave: valor'.
+    """Extrae los atributos de un .pbf como pares 'clave: valor'.
 
-    El corpus trae ~73 mapas. Cada tile contiene capas con elementos (municipios,
-    zonas) y sus atributos. Un mismo elemento se repite en varios niveles de zoom,
-    asi que se deduplican los valores para no inflar el indice (Seccion 2.1).
+    Las FAQ del reto responden que .pbf es "el formato de OpenStreetMap
+    (Protocolbuffer Binary Format)" y sugieren pyrosm/pyosmium. Los 73 .pbf de
+    ESTE corpus no lo son: viven en una piramide de teselas
+    (Amazon_Underworld/tiles/{z}/{x}/{y}.pbf) y sus bytes iniciales son
+    `1a .. 0a 10 "au_compilado_R02"`, es decir campo 3 (layers) y campo 1 (name)
+    del esquema Mapbox Vector Tile. Un .osm.pbf empieza por la longitud del
+    BlobHeader seguida de la cadena "OSMHeader", que aqui no aparece. Decodificado
+    como vector tile, un solo archivo entrega 251 elementos con atributos utiles
+    (municipio, pais, poblacion y presencia de grupos armados), asi que se trata
+    como vector tile y se deja OSM como respaldo por si algun archivo si lo fuera.
 
-    Si no hay libreria de vector tiles instalada, se devuelve cadena vacia en vez
-    de romper la indexacion: 73 de 1826 documentos no justifican tumbar el build.
+    Un mismo elemento se repite en varios niveles de zoom, asi que se deduplican
+    los valores para no inflar el indice (Seccion 2.1). Si no hay libreria
+    disponible se devuelve cadena vacia en vez de romper la indexacion: 73 de
+    1826 documentos no justifican tumbar el build.
     """
+    raw = Path(path).read_bytes()
+    texto = _decode_vector_tile(raw)
+    if not texto:
+        texto = _decode_osm_pbf(path)
+    return texto
+
+
+def _decode_vector_tile(raw: bytes) -> str:
     try:
         import mapbox_vector_tile  # type: ignore
     except ImportError:
         return ""
-
-    raw = Path(path).read_bytes()
     try:
         tile = mapbox_vector_tile.decode(raw)
     except Exception:
@@ -153,11 +180,48 @@ def _extract_pbf(path: str | Path) -> str:
     parts: list[str] = []
     for layer_name, layer in (tile or {}).items():
         for feature in layer.get("features", []):
-            for key, value in (feature.get("properties") or {}).items():
-                text = f"{key}: {value}".strip()
+            props = feature.get("properties") or {}
+            campos = [f"{k}: {v}".strip() for k, v in props.items()
+                      if str(v).strip() not in ("", "None", "nan")]
+            if not campos:
+                continue
+            # Un registro por elemento, como en CSV/XLSX: cada municipio es una
+            # unidad de fragmentacion con sentido propio. Aplanar los atributos
+            # sueltos (lo que se hacia antes) dejaba un texto sin ninguna frontera
+            # de oracion, y el documento entero acababa en un unico fragmento de
+            # cientos de KB que el encoder truncaba a sus primeros 8192 tokens.
+            registro = f"capa {layer_name} | " + " | ".join(campos) + "."
+            # El mismo elemento se repite en varios niveles de zoom: se deduplica
+            # por registro completo, no por atributo.
+            if registro not in seen:
+                seen.add(registro)
+                parts.append(registro)
+    return "\n".join(parts)
+
+
+def _decode_osm_pbf(path: str | Path) -> str:
+    """Respaldo para .pbf que si sean de OpenStreetMap: recoge las etiquetas
+    (name, amenity, boundary...) de nodos, vias y relaciones."""
+    try:
+        import osmium  # type: ignore
+    except ImportError:
+        return ""
+
+    seen: set[str] = set()
+    parts: list[str] = []
+
+    class _Handler(osmium.SimpleHandler):
+        def _tags(self, obj) -> None:
+            for tag in obj.tags:
+                text = f"{tag.k}: {tag.v}".strip()
                 if len(text) > 3 and text not in seen:
                     seen.add(text)
                     parts.append(text)
-        if parts:
-            parts.append(f"[capa: {layer_name}]")
+
+        node = way = relation = _tags
+
+    try:
+        _Handler().apply_file(str(path))
+    except Exception:
+        return ""
     return "\n".join(parts)

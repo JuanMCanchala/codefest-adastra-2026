@@ -31,6 +31,10 @@ EXT_TO_FORMAT = {
     ".csv": "csv",
     ".xlsx": "xlsx", ".xls": "xlsx",
     ".png": "image", ".jpg": "image", ".jpeg": "image", ".tiff": "image",
+    # .avif y .webp aparecen en el corpus de SWF (imagenes servidas por su web).
+    # Sin registrarlos, detect_format los daba por formato desconocido y
+    # build_index.py los saltaba en silencio, sin contarlos como omitidos.
+    ".avif": "image", ".webp": "image", ".gif": "image", ".bmp": "image",
     ".pbf": "pbf",
 }
 

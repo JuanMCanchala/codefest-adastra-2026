@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.extraction.base import extract, detect_format  # noqa: E402
 from src.cleaning.normalize import clean_document        # noqa: E402
-from src.chunking.chunker import chunk_document          # noqa: E402
+from src.chunking.chunker import chunk_document, filter_min_chars   # noqa: E402
 from src.schema import ChunkMeta                          # noqa: E402
 
 
@@ -118,7 +118,7 @@ def build(cfg: dict) -> None:
             failed.append((fuente, type(exc).__name__))
             print(f"[build] OMITIDO {fuente}: {type(exc).__name__}")
             continue
-        raw_chunks = [rc for rc in raw_chunks if len(rc.text) >= min_chars]
+        raw_chunks = filter_min_chars(raw_chunks, min_chars)
         # Valvula de seguridad: unos pocos documentos tabulares (volcados
         # bibliograficos en CSV) generan decenas de miles de fragmentos y por si
         # solos dominarian el indice. Se limita su aporte sin excluirlos.
@@ -133,6 +133,14 @@ def build(cfg: dict) -> None:
                 posicion=rc.posicion, num_tokens=rc.num_tokens, texto=rc.text,
                 idioma=idioma,
             ))
+    # FAQ (fila 42): el chunk_id debe ser el identificador interno de FAISS. Ese
+    # id se asigna por orden de insercion, que es este mismo orden, asi que basta
+    # numerar. El identificador descriptivo pasa a chunk_uid (campo adicional
+    # permitido) para conservar la trazabilidad a ojo.
+    for i, c in enumerate(all_chunks):
+        c.chunk_uid = c.chunk_id
+        c.chunk_id = str(i)
+
     n_docs = len({c.doc_id for c in all_chunks})
     print(f"[build] {len(all_chunks)} chunks de {n_docs} documentos en {raw_dir}"
           + (f" ({len(failed)} omitidos)" if failed else ""))

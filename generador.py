@@ -83,6 +83,14 @@ def load_pipeline(cfg: dict):
             graph = nx.read_graphml(str(graphml))
             ner = GLiNER.from_pretrained(gcfg["ner_model"])
             graph_retriever = GraphRetriever(graph, ner, gcfg["entity_types"])
+            print(f"[generador] grafo integrado a la recuperacion: "
+                  f"{graph.number_of_nodes():,} entidades, "
+                  f"{graph.number_of_edges():,} relaciones")
+        else:
+            # El bono solo cuenta si el grafo participa en la recuperacion, asi
+            # que perderlo por un archivo ausente no puede pasar desapercibido.
+            print(f"[ADVERTENCIA] graph.enabled=true pero no existe {graphml}: "
+                  f"se generaran resultados SIN el grafo")
 
     return Retriever(stores=stores, encoders=encoders, cfg=cfg,
                      reranker=reranker, graph_retriever=graph_retriever,

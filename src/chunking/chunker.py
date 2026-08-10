@@ -32,6 +32,28 @@ class RawChunk:
     num_tokens: int
 
 
+def _cap_sentences(sentences: list[str], max_tokens: int) -> list[str]:
+    """Trocea por palabras las 'oraciones' que exceden el presupuesto del chunk.
+
+    No es un caso teorico: los volcados de datos geoespaciales (.pbf) y algunos
+    HTML mal formados llegan sin un solo punto, de modo que el segmentador
+    devuelve el documento completo como una unica oracion. Sin este tope, ese
+    documento se indexaba como un solo fragmento de cientos de KB del que el
+    encoder solo veia sus primeros 8192 tokens: el resto quedaba fuera del
+    indice sin aviso. Cortar por palabras degrada la lectura de ese fragmento,
+    pero es preferible a perder el documento.
+    """
+    out: list[str] = []
+    for sent in sentences:
+        words = sent.split()
+        if len(words) <= max_tokens:
+            out.append(sent)
+            continue
+        for i in range(0, len(words), max_tokens):
+            out.append(" ".join(words[i:i + max_tokens]))
+    return out
+
+
 def chunk_document(
     text: str,
     lang: str = "es",
@@ -40,10 +62,10 @@ def chunk_document(
 ) -> list[RawChunk]:
     """Nivel 1: divide un documento en chunks de oraciones completas.
 
-    Nunca parte una oracion. Si una sola oracion supera index_max_tokens, se
-    emite sola (se dividira despues en el nivel de salida si hace falta).
+    No parte oraciones salvo que una sola supere index_max_tokens, en cuyo caso
+    se trocea por palabras para que ninguna quede fuera del indice.
     """
-    sentences = segment_sentences(text, lang=lang)
+    sentences = _cap_sentences(segment_sentences(text, lang=lang), index_max_tokens)
     chunks: list[RawChunk] = []
     if not sentences:
         return chunks
@@ -76,6 +98,22 @@ def chunk_document(
 
     flush(current)
     return chunks
+
+
+def filter_min_chars(chunks: list[RawChunk], min_chars: int) -> list[RawChunk]:
+    """Descarta fragmentos demasiado cortos, salvo que sean todo lo que hay.
+
+    El umbral existe para que restos de encabezado no ocupen un hueco del top-10.
+    Pero cuatro paginas del corpus (CENIA_fechas y companeras) son menus de
+    navegacion cuyo unico texto util es el titulo, de unos 14 caracteres: al
+    filtrarlos, el documento entero desaparecia del indice y ninguna consulta
+    podria recuperarlo jamas. Un documento con un fragmento pobre es peor que uno
+    bueno y mucho mejor que uno ausente.
+    """
+    filtrados = [c for c in chunks if len(c.text) >= min_chars]
+    if not filtrados and chunks:
+        return [max(chunks, key=lambda c: len(c.text))]
+    return filtrados
 
 
 def split_for_output(

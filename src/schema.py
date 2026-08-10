@@ -14,7 +14,10 @@ from dataclasses import dataclass, asdict, field
 @dataclass
 class ChunkMeta:
     doc_id: str          # id unico del documento de origen
-    chunk_id: str        # id unico del fragmento dentro del documento
+    # FAQ (fila 42): "deberian usar como chunk_id el mismo obtenido del indice
+    # FAISS". Es el id interno del vector, es decir el numero de linea de este
+    # registro dentro de metadata.jsonl, empezando en 0.
+    chunk_id: str
     fuente: str          # nombre/URL del archivo original de ADL  <- CLAVE F1@3
     formato: str         # 'pdf' | 'html' | 'md' | 'csv' | ...
     fenomeno: int        # 1, 2 o 3
@@ -23,6 +26,10 @@ class ChunkMeta:
     texto: str           # texto original del fragmento, sin modificaciones
 
     # Campos opcionales permitidos (spec: "pueden anadir campos adicionales")
+    # Identificador legible del fragmento ('F2-SWF-012-chunk-0007'). El chunk_id
+    # oficial es un entero y no dice de donde sale el fragmento; se conserva este
+    # para poder rastrear a mano cualquier resultado hasta su documento.
+    chunk_uid: str | None = None
     idioma: str | None = None
     titulo: str | None = None
     fecha: str | None = None

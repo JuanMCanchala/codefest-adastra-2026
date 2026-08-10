@@ -79,3 +79,40 @@ def test_si_corta_oraciones_reales():
     from src.chunking.sentences import segment_sentences
     s = segment_sentences("Primera oracion completa. Segunda oracion. Tercera oracion.", lang="es")
     assert len(s) == 3
+
+
+# --------------------------------------------------------------------------- #
+#  Garantias de cobertura del indice (correcciones C14 y C15)
+# --------------------------------------------------------------------------- #
+def test_documento_sin_puntos_no_queda_en_un_solo_fragmento():
+    """Los volcados geoespaciales (.pbf) llegan sin un solo punto: el segmentador
+    devuelve el documento entero como una 'oracion'. Sin tope, se indexaba como un
+    unico fragmento del que el encoder solo veia sus primeros 8192 tokens."""
+    from src.chunking.chunker import chunk_document
+    texto = " ".join(f"campo{i}: valor{i}" for i in range(2000))   # ni un punto
+    chunks = chunk_document(texto, index_max_tokens=256, overlap_sentences=0)
+    assert len(chunks) > 1
+    assert all(len(c.text.split()) <= 256 for c in chunks)
+
+
+def test_oracion_gigante_no_pierde_palabras():
+    from src.chunking.chunker import chunk_document
+    palabras = [f"p{i}" for i in range(1000)]
+    chunks = chunk_document(" ".join(palabras), index_max_tokens=100, overlap_sentences=0)
+    recuperadas = " ".join(c.text for c in chunks).split()
+    assert recuperadas == palabras
+
+
+def test_filtro_minimo_no_deja_un_documento_sin_fragmentos():
+    """Cuatro paginas del corpus solo tienen titulo (13-31 caracteres). Filtrarlas
+    borraba el documento del indice, y un documento ausente no se recupera nunca."""
+    from src.chunking.chunker import RawChunk, filter_min_chars
+    chunks = [RawChunk("Fechas - CENIA", 0, 2)]
+    assert filter_min_chars(chunks, min_chars=40) == chunks
+
+
+def test_filtro_minimo_si_descarta_cuando_hay_alternativa():
+    from src.chunking.chunker import RawChunk, filter_min_chars
+    largo = RawChunk("x" * 100, 1, 1)
+    out = filter_min_chars([RawChunk("corto", 0, 1), largo], min_chars=40)
+    assert out == [largo]

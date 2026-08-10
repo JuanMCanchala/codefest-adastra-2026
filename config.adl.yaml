@@ -75,7 +75,10 @@ aggregation:
   k_chunks: 30
 
 graph:
-  enabled: false             # activar tras validar el nucleo
+  # Las FAQ del reto son explicitas: "es bono y para que sea valido lo deben
+  # integrar a la recuperacion, el solo construirlo no es valido". El grafo entra
+  # como un ranking mas en la fusion RRF (Seccion 8.5), no como adorno.
+  enabled: true
   ner_model: "urchade/gliner_multi-v2.1"
   entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
-  fuse_into_retrieval: false
+  fuse_into_retrieval: true

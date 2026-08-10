@@ -281,18 +281,128 @@ zona gris del reglamento y coste de VRAM. Ver `NOTA_UNLIMITED_OCR.md`.
 
 ---
 
-## Consultas formales al jurado
+## Consultas formales al jurado — RESPONDIDAS
 
-Enviado por correo (26-jul), pendiente de respuesta:
+Enviado por correo (26-jul). La respuesta llegó en el archivo *Preguntas Frecuentes* que ADL
+publicó a la comunidad; nuestra consulta es la **fila 31** de ese archivo.
 
-1. **Reranking con cross-encoder** (`bge-reranker-v2-m3`): ¿admisible, siendo arquitectura encoder
-   y no generando texto, dado que la Sec. 8.3 prohíbe reranking *"mediante un LLM"* pero también
-   dice que la recuperación debe operar *"exclusivamente sobre vectores, puntuaciones y metadata"*?
-2. **OCR con modelo generativo** en preprocesamiento: ¿admisible, dado que la Sec. 2.1 recomienda
-   OCR pero la Sec. 4.2 restringe decoders en la *"construcción del índice"*?
+1. **Reranking con cross-encoder** (`bge-reranker-v2-m3`) → **PERMITIDO**, textual:
+   > *"Sí está permitido re-ranking con cross-encoders. La restricción aplica es para arquitecturas
+   > decoders."*
 
-**Plan de contingencia:** ambos componentes son desactivables por configuración. Si el jurado los
-veta, `rerank.enabled: false` y el sistema opera con fusión RRF pura sin cambios de código.
+   Confirmado tres veces de forma independiente (filas 31, 43 y 58, esta última a otro equipo).
+   La zona gris queda cerrada a nuestro favor: `rerank.enabled: true` se mantiene.
+2. **OCR con modelo generativo**: no respondida de forma directa, pero la fila 42 aclara que
+   *"pueden usar encoders de visión para crear directamente el vector de las imágenes; también
+   pueden usar VLMs solo para generar descripciones textuales"*. Es decir, el uso de generativos en
+   **indexación** está admitido. Aun así mantenemos `Unlimited-OCR` parqueado: usamos EasyOCR
+   (CRAFT + CRNN, no generativo), que ya recuperó los 51 PDF escaneados sin riesgo de alucinación
+   sobre el campo `text`, que es el que se evalúa.
+
+**Plan de contingencia:** ambos componentes siguen siendo desactivables por configuración.
+
+---
+
+## Cambios derivados del archivo de Preguntas Frecuentes (10-ago)
+
+ADL publicó 68 preguntas de la comunidad con respuestas del Ing. Francisco Manrique. Cinco puntos
+afectaban decisiones ya tomadas:
+
+| # | Lo que dice la FAQ | Nuestro estado | Acción |
+|---|---|---|---|
+| 1 | Cross-encoder permitido (filas 31/43/58) | `rerank.enabled: true` | Ninguna: validado |
+| 2 | El emparejamiento es por `doc_id` de ADL; lo del handbook fue **errata de versionado** (filas 19/52/58) | Ya usábamos el `DOC_ID` del inventario | Ninguna: acertamos |
+| 3 | El grafo *"es bono y para que sea válido lo deben integrar a la recuperación, el solo construirlo no es válido"* (fila 42) | `enabled: false` | **C17** |
+| 4 | *"Deberían usar como `chunk_id` el mismo obtenido del índice FAISS"* (fila 42) | `F1-AIINDEX-015-chunk-0000` | **C16** |
+| 5 | Usar la **extensión real en minúsculas** en `formato`; la Tabla 1 solo daba ejemplos (filas 21/60) | Ya lo hacíamos | Ninguna |
+
+Confirmaciones adicionales sin impacto: híbrido BM25/léxico permitido (filas 28/49); se exigen
+siempre 10 fragmentos y 3 documentos, *"si es necesario baja tu umbral"* (fila 42); se admiten
+archivos Python adicionales a `generador.py` (fila 46); la entrega es un enlace a repositorio
+público por formulario, sin Docker (fila 37); el corpus son 1 826 documentos — F1 459, F2 479,
+F3 888 (fila 45), cifra que coincide con nuestro inventario.
+
+### C13 — Los 73 mapas `.pbf` nunca entraron al índice
+
+**Síntoma:** los 73 archivos `.pbf` del corpus tenían caché de texto de 0 bytes. Ningún error.
+
+**Diagnóstico:** la FAQ (fila 21) responde que `.pbf` es *"el formato de OpenStreetMap
+(Protocolbuffer Binary Format)"* y sugiere `pyrosm`/`pyosmium`. **Para estos archivos concretos la
+respuesta no aplica.** Se verificó sobre los bytes: empiezan por
+`1a … 0a 10 "au_compilado_R02"`, es decir campo 3 (*layers*) y campo 1 (*name*) del esquema
+**Mapbox Vector Tile**; un `.osm.pbf` empezaría por la longitud del *BlobHeader* seguida de la
+cadena `OSMHeader`, que no aparece. Además viven en una pirámide de teselas
+`Amazon_Underworld/tiles/{z}/{x}/{y}.pbf`. Decodificado como vector tile, un solo archivo entrega
+251 elementos con atributos reales (municipio, país, población y presencia de grupos armados:
+`au_eln`, `au_cv`, `au_pcc`…). El extractor era el correcto; simplemente nunca llegó a ejecutarse
+con la librería instalada.
+
+**Corrección:** se pobló la caché (73/73, 2,9 MB) y se dejó `pyosmium` como respaldo por si algún
+`.pbf` sí fuera de OSM. Lección: *contrastar la respuesta del organizador contra el archivo real
+antes de reescribir código por ella.*
+
+### C14 — Un documento sin puntos se indexaba como un único fragmento
+
+**Síntoma:** al fragmentar los 73 `.pbf` recuperados salían **77 fragmentos de 77 documentos**: uno
+por documento, de hasta 291 KB.
+
+**Causa (dos capas):**
+1. El extractor aplanaba el tile a pares `clave: valor` sueltos, destruyendo la estructura de
+   registro. El texto resultante no tenía **ni un solo punto**, así que el segmentador devolvía el
+   documento entero como una sola "oración".
+2. `chunk_document()` documentaba que *"si una sola oración supera `index_max_tokens`, se emite
+   sola"*. Con una oración de 291 KB, BGE-M3 solo veía sus primeros 8 192 tokens y **el resto del
+   documento quedaba fuera del índice sin ningún aviso**.
+
+**Corrección:** el extractor emite ahora **un registro por elemento** (`capa X | fid: … | país: …`),
+igual que se hace con CSV/XLSX, deduplicando por registro completo porque el mismo municipio se
+repite en varios niveles de zoom. Y `chunk_document()` trocea por palabras cualquier oración que
+exceda el presupuesto. Resultado: 3 871 fragmentos de 77 documentos (de 1 a ~50 por documento).
+
+### C15 — Once documentos del inventario fuera del índice
+
+Auditoría de cobertura tras C13: el índice tenía 1 815 de los 1 826 documentos del inventario.
+
+| Documento | Causa | Resolución |
+|---|---|---|
+| `F1-AIINDEX-041` | Un `.csv` que en realidad está **separado por tabuladores**; `pd.read_csv` lo rechazaba con `ParserError` | Reintento tolerante (`sep=None`, `on_bad_lines="skip"`) → **2,25 M caracteres, 15 115 registros** recuperados |
+| `F1-CENIA-008/012/016/022` | Páginas de menú cuyo único texto útil es el título (13–31 caracteres), por debajo de `min_chunk_chars: 40` | `filter_min_chars()` conserva el mejor fragmento cuando el filtro dejaría el documento **sin ninguno**: un documento ausente del índice no puede recuperarse jamás |
+| `F2-SWF-065` | Imagen `.avif`, extensión no registrada; `detect_format` la daba por formato desconocido y se saltaba **en silencio** | `.avif/.webp/.gif/.bmp` añadidos al mapa de formatos |
+| `F2-SWF-066/067/068/071` | Fotografías sin texto (un retrato y fotos de misión de la NASA) | OCR ejecutado: devuelve vacío **correctamente**. No hay nada que indexar |
+| `F1-DEFENSA21-001` | El archivo son literalmente 2 bytes: `[]` | Sin contenido posible |
+
+**Estado final: 1 821 de 1 826 documentos indexados.** Los 5 restantes no tienen texto extraíble
+por ningún medio (4 fotografías + 1 archivo vacío). Se migró además `_extract_ocr()` de PaddleOCR a
+EasyOCR, el motor ya medido en `ocr_scanned.py` (6,5 s frente a 115 s por imagen en esta máquina).
+
+### C16 — `chunk_id` no era el identificador de FAISS
+
+La FAQ (fila 42) pide usar como `chunk_id` *"el mismo obtenido del índice FAISS"*. Usábamos
+identificadores descriptivos (`F1-AIINDEX-015-chunk-0000`).
+
+**No hizo falta recodificar nada.** FAISS asigna sus identificadores internos por orden de
+inserción, y la base ya cumplía el invariante de que la línea *i* de `metadata.jsonl` es el vector
+*i*; bastó renumerar el campo (`scripts/migrate_chunk_ids.py`). El identificador descriptivo se
+conserva en `chunk_uid`, campo adicional que la especificación permite, para no perder la
+trazabilidad a ojo. El índice disperso comparte ese orden de inserción, así que se reescribió su
+lista y **se verificó la alineación**: si los dos espacios de identificadores divergieran, la fusión
+RRF mezclaría fragmentos que no se corresponden y la señal léxica dejaría de sumar en silencio.
+
+### C17 — El grafo estaba construido pero desconectado
+
+`graph.enabled: false` y `fuse_into_retrieval: false`. Según la FAQ, el bono **no habría puntuado**:
+*"es bono y para que sea válido lo deben integrar a la recuperación, el solo construirlo no es
+válido"*. Ambos pasan a `true`, de modo que el grafo entra como un ranking más en la fusión RRF
+(Sec. 8.5). Se añadió además un aviso explícito en `generador.py`: si el grafo está activado pero
+falta `grafo.graphml`, antes se generaban resultados sin él sin decir nada.
+
+### Herramienta nueva: indexación incremental
+
+`scripts/append_docs.py`. Reconstruir la base completa cuesta horas de GPU y no aporta nada cuando
+solo faltan unos pocos documentos. Como FAISS `IndexFlatIP` y el índice disperso admiten anexado, y
+los identificadores se asignan por orden de inserción, **anexar al final no altera ninguno de los
+existentes**: metadata, índice disperso y grafo siguen alineados. Los 1 475 + 3 871 fragmentos
+nuevos se añadieron en minutos en vez de horas. Total: **90 613 fragmentos** (antes 85 267).
 
 ---
 
