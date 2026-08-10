@@ -36,13 +36,33 @@ multiformato y multilingüe (ES/EN/PT) sobre tres fenómenos:
 Estas cinco son las que orientaron todo el diseño. Si te preguntan "¿por qué priorizaron X?",
 la respuesta está casi siempre aquí.
 
-### 2.1 El emparejamiento es por CONTENIDO, no por identificador
+### 2.1 El emparejamiento es por CONTENIDO (fragmentos) y por `doc_id` (documentos)
 > Sección 10.2.1: *"La relevancia de cada fragmento se juzga sobre su contenido textual (campo
 > `text`). El `chunk_id` **no** es la clave de emparejamiento… a nivel documento el emparejamiento
 > se realiza a través del campo `fuente`, no del `doc_id` arbitrario asignado por el equipo."*
 
-**Consecuencia:** la calidad de la **extracción** y la fidelidad de `fuente` ponen el techo de las
-métricas. Por eso invertimos más esfuerzo en extracción/limpieza que en afinar el recuperador.
+⚠️ **La segunda mitad de esa frase es una errata del handbook.** ADL lo corrigió en el archivo de
+Preguntas Frecuentes (filas 19, 52 y 58): *"Eso es un error del handbook en su primera versión. El
+emparejamiento es con el **`doc_id` suministrado**"*, el del inventario `Indice_Datos_Codefest.xlsx`.
+Nosotros ya usábamos ese identificador antes de la aclaración, así que no hubo que cambiar nada.
+
+**Consecuencia:** para los 10 fragmentos manda el **texto** — la calidad de la extracción y la
+limpieza pone el techo del NDCG@10. Para los 3 documentos manda el `doc_id` oficial. Por eso
+invertimos más esfuerzo en extracción/limpieza que en afinar el recuperador.
+
+### 2.1b El `chunk_id` debe ser el del índice FAISS
+> Preguntas Frecuentes, fila 42: *"deberían usar como `chunk_id` el mismo obtenido del índice FAISS."*
+
+Es el identificador interno del vector, es decir el número de línea del registro en
+`metadata.jsonl` empezando en 0. El identificador legible (`F2-SWF-012-chunk-0007`) se conserva en
+el campo adicional `chunk_uid` para poder rastrear a mano cualquier resultado.
+
+### 2.1c El grafo solo puntúa si se integra a la recuperación
+> Preguntas Frecuentes, fila 42: *"Es bono y para que sea válido lo deben integrar a la
+> recuperación, el solo construirlo no es válido."*
+
+De ahí `graph.enabled: true` **y** `graph.fuse_into_retrieval: true`: el grafo aporta un ranking
+más a la fusión RRF. Construirlo y exportarlo sin conectarlo no habría sumado nada.
 
 ### 2.2 Prohibición de modelos generativos
 > Sección 8.3: *"En ninguna etapa del proceso de recuperación se permite el uso de modelos de
@@ -141,6 +161,12 @@ reranker cross-encoder (ver §7.3), aislado tras un interruptor.
 | **`src/eval/harness.py`** | Arnés de evaluación: corre el retriever sobre el eval set y mide |
 | `generador.py` | **Entregable 4**: índice + consultas → `resultados.jsonl` (determinista) |
 | `scripts/build_index.py` | Pipeline de indexación completo |
+| `scripts/extract_corpus.py` | Extracción + limpieza en paralelo, con caché en disco (reanudable) |
+| `scripts/append_docs.py` | **Indexación incremental**: anexa al índice los documentos que falten, sin reconstruir la base (los ids internos se asignan por orden de inserción, así que anexar al final no altera ninguno) |
+| `scripts/migrate_chunk_ids.py` | Migración única de `chunk_id` al identificador interno de FAISS; reescribe metadata y disperso y **verifica** que sigan alineados |
+| `scripts/ocr_scanned.py` | OCR (EasyOCR/GPU) de los 51 PDF escaneados hacia la caché de texto |
+| `scripts/build_graph.py` | Construye `grafo.graphml` con NER por lotes; reanudable y con control térmico (`--batch`, `--pausa`, `--hilos`) |
+| `scripts/check_results.py` | Cinco comprobaciones de calidad sobre `resultados.jsonl` |
 | `scripts/fetch_corpus.py` | Descarga corpus de prueba real (arXiv API + institucionales) |
 | `scripts/make_eval_corpus.py` | Genera eval set con relevancia desde el manifiesto |
 | `scripts/eval_corpus.py` | Compara variantes sobre índice ya construido |

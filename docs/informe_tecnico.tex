@@ -290,19 +290,34 @@ Difería de nuestras previsiones en tres puntos que obligaron a adaptar el siste
 heterogéneos —artículos con \texttt{body\_text}, páginas con \texttt{sections}, catálogos de
 fichas—, así que reescribimos el extractor para recorrer cualquier estructura y recoger todo el
 texto útil descartando metadata técnica, en lugar de buscar un conjunto fijo de claves.
-\item \textbf{ADL entrega un inventario oficial} con un \texttt{DOC\_ID} único por archivo. Usarlo
-elimina la mayor incertidumbre del reto: la evaluación a nivel documento empareja por
-\texttt{fuente}, y así nos apoyamos en los identificadores del organizador en vez de inventarlos.
+\item \textbf{ADL entrega un inventario oficial} con un \texttt{DOC\_ID} único por archivo. La
+especificación decía que la evaluación a nivel documento empareja por \texttt{fuente}, pero
+optamos por el identificador del organizador en vez de inventar uno propio. La decisión resultó
+acertada: ADL aclaró después que aquella frase era \textbf{una errata de versionado} y que
+\emph{«el emparejamiento a nivel de documento se realiza mediante el campo \texttt{doc\_id}»}.
 \item \textbf{51 PDFs no tienen capa de texto.} Son escaneados y la extracción devolvía cadena
 vacía \emph{sin error visible}. 47 son informes de Alertas Tempranas (Defensoría del Pueblo), el
 observatorio más relevante para 18 de las 50 consultas. Se recuperaron mediante OCR.
 \end{itemize}
 
-\textbf{Resultado de la indexación:} 82\,673 fragmentos de 1\,688 documentos, metadata alineada
-1:1 con el índice FAISS, índice disperso con 59\,673 tokens únicos, y \texttt{resultados.jsonl}
-con \textbf{cero errores de esquema}.
+\textbf{Resultado de la indexación:} \textbf{90\,613 fragmentos de 1\,821 de los 1\,826 documentos}
+del inventario, metadata alineada 1:1 con el índice FAISS, índice disperso con 59\,637 tokens
+únicos, y \texttt{resultados.jsonl} con \textbf{cero errores de esquema}. Los cinco documentos no
+indexados carecen de texto extraíble por cualquier medio: cuatro son fotografías —un retrato y
+tres imágenes de misión, sobre las que el OCR se ejecuta y devuelve vacío correctamente— y el
+quinto es un archivo de dos bytes (\texttt{[]}).
 
-\subsection{Dos hallazgos que solo aparecen con el corpus real}
+\textbf{Auditoría de cobertura.} Llegar a esa cifra exigió perseguir omisiones que el sistema no
+reportaba como errores. El caso más instructivo: un archivo con extensión \texttt{.csv} que en
+realidad está separado por tabuladores hacía fallar al lector estricto de \emph{pandas} con
+\texttt{ParserError}, y sus \textbf{15\,115 registros} quedaban fuera; un reintento tolerante los
+recupera. Cuatro páginas cuyo único texto útil es el título (13--31 caracteres) caían por debajo
+del umbral de longitud mínima y \textbf{el documento entero desaparecía del índice}: se conserva
+ahora el mejor fragmento disponible, porque un documento pobre es recuperable y uno ausente no lo
+es jamás. Y una imagen \texttt{.avif} con extensión no registrada se omitía \emph{en silencio}, sin
+contarse siquiera como descartada.
+
+\subsection{Tres hallazgos que solo aparecen con el corpus real}
 
 \textbf{Contaminación por el archivo de consultas.} El paquete de ADL incluye, junto al corpus, el
 PDF con las 50 consultas de evaluación. Al indexarlo como un documento más, emparejaba de forma
@@ -314,6 +329,28 @@ medida: 20/50 $\rightarrow$ 0/50.
 \textbf{Concentración de fragmentos.} Tres volcados bibliográficos en CSV generaban 78\,000
 fragmentos entre los tres —el 51\,\% del índice— sobre biomedicina ajena a las consultas. Un
 límite configurable por documento acota su peso sin excluirlos del corpus.
+
+\textbf{Un documento sin puntos cabía entero en un solo fragmento.} Los 73 mapas \texttt{.pbf} del
+corpus son datos geoespaciales sin una sola marca de puntuación. El segmentador oracional devolvía
+por tanto el documento completo como una única «oración», y la política de no partir oraciones la
+emitía tal cual: un fragmento de hasta 291\,KB del que el encoder solo procesa sus primeros 8\,192
+tokens, quedando \textbf{el resto del documento fuera del índice sin aviso alguno}. La corrección
+opera en dos niveles: el extractor emite \emph{un registro por elemento} —igual que en CSV, donde
+cada fila es una unidad de fragmentación con sentido propio— y el fragmentador trocea por palabras
+cualquier oración que exceda el presupuesto, garantía verificada por test. El resultado pasa de 77
+a \textbf{3\,871 fragmentos}, con datos de presencia de grupos armados por municipio amazónico
+directamente pertinentes al Fenómeno 3.
+
+Merece señalarse el diagnóstico del formato, porque contradice la guía recibida. Consultado por la
+comunidad, el organizador respondió que \texttt{.pbf} es \emph{«el formato de OpenStreetMap»} y
+sugirió \texttt{pyrosm} o \texttt{pyosmium}. La verificación sobre los bytes del archivo dice otra
+cosa: comienzan por \texttt{1a\,\ldots\,0a\,10\,"au\_compilado\_R02"}, esto es el campo~3
+(\emph{layers}) y el campo~1 (\emph{name}) del esquema \textbf{Mapbox Vector Tile}; un
+\texttt{.osm.pbf} comenzaría por la longitud del \emph{BlobHeader} seguida de la cadena
+\texttt{OSMHeader}, ausente aquí. Los archivos residen además en una pirámide de teselas
+\texttt{tiles/\{z\}/\{x\}/\{y\}.pbf}. Decodificado como vector tile, un solo archivo entrega 251
+elementos con atributos reales. Se conserva \texttt{pyosmium} como respaldo por si algún archivo sí
+fuera de OSM, pero el corpus se indexa con el decodificador que corresponde a su contenido real.
 
 \subsection{Selección del motor de OCR}
 
