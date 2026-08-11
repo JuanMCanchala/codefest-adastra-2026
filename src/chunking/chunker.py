@@ -116,6 +116,45 @@ def filter_min_chars(chunks: list[RawChunk], min_chars: int) -> list[RawChunk]:
     return filtrados
 
 
+# Fronteras secundarias, por orden de preferencia, para partir un texto que el
+# segmentador entrego como una sola "oracion" larguisima. Casi siempre no es una
+# oracion real, sino una lista de vinetas, una tabla o un bloque de referencias.
+_FRONTERAS_SECUNDARIAS = ("•", "; ", ": ", " | ", " – ", " — ")
+
+
+def _partir_larga(sent: str, max_words: int) -> list[str]:
+    """Trocea una 'oracion' que excede el limite, en el punto menos malo.
+
+    La Seccion 3.3 es un requisito obligatorio: ningun fragmento puede contener
+    oraciones incompletas. Cortar por palabras lo incumple de forma flagrante
+    -parte la frase a mitad-, asi que solo se recurre a ello si el texto no
+    ofrece ninguna frontera aprovechable.
+    """
+    for marca in _FRONTERAS_SECUNDARIAS:
+        if marca not in sent:
+            continue
+        piezas = [p.strip() for p in sent.split(marca) if p.strip()]
+        if len(piezas) < 2:
+            continue
+        salida: list[str] = []
+        actual: list[str] = []
+        n = 0
+        for pieza in piezas:
+            k = len(pieza.split())
+            if actual and n + k > max_words:
+                salida.append(" ".join(actual))
+                actual, n = [], 0
+            actual.append(pieza)
+            n += k
+        if actual:
+            salida.append(" ".join(actual))
+        if all(len(s.split()) <= max_words for s in salida):
+            return salida
+
+    palabras = sent.split()   # ultimo recurso
+    return [" ".join(palabras[i:i + max_words]) for i in range(0, len(palabras), max_words)]
+
+
 def split_for_output(
     text: str,
     lang: str = "es",
@@ -124,8 +163,8 @@ def split_for_output(
     """Nivel 2: divide un texto en sub-fragmentos de <= max_words palabras,
     respetando oraciones completas (spec 9.2.1).
 
-    Si una sola oracion supera max_words (caso raro), se corta por palabras
-    como ultimo recurso para no violar el limite duro.
+    Si una sola oracion supera max_words, se busca una frontera secundaria
+    (vinetas, punto y coma, dos puntos) antes de recurrir al corte por palabras.
     """
     if len(text.split()) <= max_words:
         return [text.strip()]
@@ -138,13 +177,11 @@ def split_for_output(
     for sent in sentences:
         n = len(sent.split())
         if n > max_words:
-            # oracion gigante: emitir lo acumulado y trocear por palabras
+            # oracion gigante: emitir lo acumulado y buscarle una frontera
             if current:
                 out.append(" ".join(current).strip())
                 current, current_words = [], 0
-            words = sent.split()
-            for i in range(0, len(words), max_words):
-                out.append(" ".join(words[i:i + max_words]))
+            out.extend(_partir_larga(sent, max_words))
             continue
         if current and current_words + n > max_words:
             out.append(" ".join(current).strip())

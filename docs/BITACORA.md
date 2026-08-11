@@ -444,6 +444,44 @@ válido"*. Ambos pasan a `true`, de modo que el grafo entra como un ranking más
 (Sec. 8.5). Se añadió además un aviso explícito en `generador.py`: si el grafo está activado pero
 falta `grafo.graphml`, antes se generaban resultados sin él sin decir nada.
 
+### C18 — Violábamos el requisito obligatorio de completitud lingüística
+
+**Cómo apareció.** Al preguntar el usuario *"¿verificaste que cumplimos todos los requisitos?"*,
+audité el enunciado punto por punto en vez de fiarme de la lista mental. Aparecieron **tres**
+recuadros marcados *Requisito obligatorio*; solo dos estaban verificados.
+
+> **Sección 3.3:** *"Ningún fragmento puede contener oraciones o frases incompletas. Una oración
+> que comienza en un chunk debe terminar en ese mismo chunk."*
+
+**Medición sobre la entrega ya generada:** de 500 fragmentos, **35 no cerraban en fin de oración**
+y **14 no empezaban en uno**. Al desglosarlos:
+
+| Causa | Nº | ¿Viola la regla? |
+|---|---|---|
+| Oración completa seguida de metadata pegada (un DOI, el colofón postal de SWF) | 22 | No: un DOI no es una oración incompleta |
+| Cortados exactamente en la palabra 250 | 13 | **Sí** |
+| Cola de una frase que empieza fuera (`"ley se valen de bandas criminales…"`) | 6 | **Sí** |
+
+**La ironía:** los 13 primeros los produjo el troceo por palabras que introduje en **C14** para que
+los `.pbf` no quedaran truncados. Un arreglo creó una violación de otro requisito. Los 6 segundos
+vienen de los PDF escaneados: el OCR no recupera la puntuación del original, el segmentador no
+encuentra dónde cortar y el troceo cae a mitad de frase.
+
+**Corrección en dos frentes.**
+1. `split_for_output()` busca ahora **fronteras secundarias** —viñetas, punto y coma, dos puntos,
+   barras— antes de recurrir al corte por palabras, que queda como último recurso para texto que no
+   ofrece ninguna.
+2. El pipeline exige que un sub-fragmento **abra y cierre** en frontera de oración; si no, pasa a la
+   reserva y solo se usa si no hay diez bien formados. Es el mismo mecanismo que ya filtraba los
+   fragmentos demasiado cortos.
+
+**Resultado: 0 de 500 fragmentos mal formados** (antes 35 y 14). Sin efectos colaterales: siguen
+siendo 500 fragmentos, media de 202 palabras, cero duplicados dentro de una consulta.
+
+**Lección.** Los dos defectos más caros del proyecto —el PDF de consultas indexado como corpus y
+este— se detectaron **midiendo la salida contra el enunciado**, no leyendo el código. Conviene
+convertir cada requisito obligatorio en una comprobación automática antes de darlo por cumplido.
+
 ### Herramienta nueva: indexación incremental
 
 `scripts/append_docs.py`. Reconstruir la base completa cuesta horas de GPU y no aporta nada cuando

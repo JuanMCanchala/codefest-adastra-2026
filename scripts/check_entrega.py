@@ -12,8 +12,12 @@ comprueba lo que un jurado comprobaria primero:
   4. Todos los campos obligatorios de la Tabla 1, con fenomeno en {1,2,3}.
   5. chunk_id es el identificador interno de FAISS (FAQ, fila 42).
   6. resultados.jsonl: 50 lineas, 3 documentos, 10 fragmentos, <=250 palabras.
-  7. Los doc_id citados en resultados existen en la metadata.
-  8. El grafo (bonus) se abre y no esta vacio.
+  7. Completitud linguistica (Seccion 3.3): ningun fragmento empieza o termina a
+     mitad de oracion. Es requisito obligatorio y NO basta con respetarlo por
+     diseño: cuando el texto de origen no trae puntuacion, el troceo corta a
+     mitad de frase sin que nada lo advierta.
+  8. Los doc_id citados en resultados existen en la metadata.
+  9. El grafo (bonus) se abre y no esta vacio.
 
     python scripts/check_entrega.py --entrega entrega
 """
@@ -112,6 +116,21 @@ def main() -> None:
                   f"{len(errores)} errores" if errores else "sin errores")
         for e in errores[:5]:
             print(f"          - {e}")
+
+        # Seccion 3.3, requisito obligatorio. Se comprueba aqui porque respetar
+        # los limites oracionales "por diseño" no basta: cuando el texto de
+        # origen no tiene puntuacion (volcados geoespaciales, PDF escaneados por
+        # OCR) el troceo cae a mitad de frase sin que nada lo advierta.
+        from src.retrieval.pipeline import _abre_oracion, _cierra_oracion
+        frags = [f["text"] for o in res for f in o["fragments"]]
+        sin_cierre = [t for t in frags if not _cierra_oracion(t)]
+        sin_inicio = [t for t in frags if not _abre_oracion(t)]
+        inf.check(not sin_cierre and not sin_inicio,
+                  "completitud linguistica (Seccion 3.3)",
+                  f"{len(sin_cierre)} sin cerrar, {len(sin_inicio)} sin abrir"
+                  if (sin_cierre or sin_inicio) else f"{len(frags)} fragmentos bien formados")
+        for t in (sin_cierre + sin_inicio)[:3]:
+            print(f"          - {t[:70]!r}...")
 
         if metadata:
             conocidos = {m["doc_id"] for m in metadata}

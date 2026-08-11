@@ -116,3 +116,50 @@ def test_filtro_minimo_si_descarta_cuando_hay_alternativa():
     largo = RawChunk("x" * 100, 1, 1)
     out = filter_min_chars([RawChunk("corto", 0, 1), largo], min_chars=40)
     assert out == [largo]
+
+
+# --------------------------------------------------------------------------- #
+#  Completitud linguistica (Seccion 3.3, requisito obligatorio)
+# --------------------------------------------------------------------------- #
+def test_lista_larga_se_parte_por_vinetas_no_por_palabras():
+    """Una lista de vinetas llega como una sola 'oracion'. Partirla por palabras
+    dejaria frases cortadas a la mitad, que la Seccion 3.3 prohibe."""
+    from src.chunking.chunker import split_for_output
+    items = [f"• Punto numero {i} con su texto explicativo correspondiente" for i in range(40)]
+    partes = split_for_output(" ".join(items), max_words=60)
+    assert all(len(p.split()) <= 60 for p in partes)
+    # ninguna parte debe empezar a mitad de un item
+    assert all(p.lstrip().startswith(("•", "Punto")) for p in partes)
+
+
+def test_corte_por_palabras_solo_si_no_hay_frontera():
+    from src.chunking.chunker import _partir_larga
+    sin_fronteras = " ".join(f"palabra{i}" for i in range(300))
+    partes = _partir_larga(sin_fronteras, max_words=100)
+    assert len(partes) == 3
+    assert " ".join(partes).split() == sin_fronteras.split()
+
+
+def test_cierre_de_oracion_detecta_fragmentos_truncados():
+    from src.retrieval.pipeline import _cierra_oracion
+    assert _cierra_oracion("Esto es una oracion completa.")
+    assert _cierra_oracion('Cita entre comillas."')
+    assert _cierra_oracion("¿Una pregunta?")
+    assert not _cierra_oracion("Esto quedo cortado a mitad de")
+    assert not _cierra_oracion("• Promover")
+
+
+def test_apertura_de_oracion_detecta_colas_de_frase():
+    """Los PDF escaneados pierden la puntuacion en el OCR y el troceo cae a
+    mitad de frase: 'ley se valen de bandas criminales...' es la cola de
+    'grupos al margen de la ley se valen de...'."""
+    from src.retrieval.pipeline import _abre_oracion, _bien_formado
+    assert _abre_oracion("Una oracion normal.")
+    assert _abre_oracion("¿Y una pregunta?")
+    assert _abre_oracion("2024 fue el año del cambio.")
+    assert _abre_oracion("«Una cita textual.»")
+    assert not _abre_oracion("ley se valen de bandas criminales.")
+    # bien formado exige ambas cosas
+    assert _bien_formado("Abre y cierra correctamente.")
+    assert not _bien_formado("Abre bien pero no cierra")
+    assert not _bien_formado("cierra bien pero no abre.")

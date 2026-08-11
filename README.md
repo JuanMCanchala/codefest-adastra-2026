@@ -7,7 +7,7 @@ Evaluación: `NDCG@10` (fragmentos) + `F1@3` (documentos), combinados con Conteo
 
 **Estado: entrega completa.** 1 821 de 1 826 documentos indexados, 90 613 fragmentos,
 `resultados.jsonl` con 50 líneas y cero errores de esquema, grafo de conocimiento integrado a la
-recuperación. 61 pruebas automatizadas.
+recuperación. 65 pruebas automatizadas.
 
 ## Entregables (Sección 1.4)
 
@@ -15,7 +15,7 @@ recuperación. 61 pruebas automatizadas.
 entrega/
   resultados.jsonl          50 líneas q001–q050, esquema estricto validado
   generador.py              reproduce resultados.jsonl desde el índice
-  informe_tecnico.pdf       informe técnico (6 págs)
+  informe_tecnico.pdf       informe técnico (7 págs)
   base_vectorial/
     encoder_bge-m3/
       index.faiss           IndexFlatIP, 90 613 vectores de 1024 dimensiones
@@ -107,7 +107,7 @@ python entrega/generador.py --config config.adl.yaml
 ```
 
 Regenera `entrega/resultados.jsonl` **byte a byte**: dos corridas completas producen el mismo
-archivo, con MD5 `04156f98fd7ff52077edfe8e12f01146`. Añadir `--pausa 2` en portátiles: los tres modelos
+archivo, con MD5 `39d4eee2eb7bb13d12bd51c39844a5a0`. Añadir `--pausa 2` en portátiles: los tres modelos
 (encoder denso, cross-encoder y NER) comparten la GPU sin descanso y la corrida alcanza 83 °C.
 
 ## Reproducción desde cero
@@ -150,13 +150,13 @@ src/
   eval/                   métricas exactas (NDCG@10, F1@3, Borda) + arnés
   schema.py               metadata de la Tabla 1 + validador estricto de resultados
 scripts/                  indexación, OCR, grafo, verificación y comparación
-tests/                    61 pruebas
+tests/                    65 pruebas
 ```
 
 ## Verificación de calidad
 
 ```bash
-python -m pytest -q                                                  # 61 pruebas
+python -m pytest -q                                                  # 65 pruebas
 python scripts/check_results.py --resultados entrega/resultados.jsonl  # 5 comprobaciones
 python scripts/compare_resultados.py --a A.jsonl --b B.jsonl           # A/B entre configuraciones
 ```

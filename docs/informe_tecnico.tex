@@ -130,6 +130,20 @@ conservan el \texttt{chunk\_id} original, que cumple función de \textbf{trazabi
 evidencia indexada.
 \end{itemize}
 
+\textbf{Verificar la completitud, no suponerla.} Respetar los límites oracionales \emph{por diseño}
+no basta cuando el texto de origen no los tiene. Medimos la salida contra el requisito: de 500
+fragmentos, \textbf{35 no cerraban en fin de oración y 14 no empezaban en uno}. Veintidós eran
+falsos positivos —una oración completa seguida de un DOI o del colofón postal del editor—, pero
+diecinueve sí incumplían: trece cortados exactamente en la palabra 250 y seis que eran la cola de
+una frase iniciada fuera del fragmento. Los primeros procedían del troceo por palabras que este
+mismo sistema aplica a los volcados geoespaciales sin puntuación; los segundos, de los PDF
+escaneados, donde el OCR no recupera la puntuación y el segmentador no encuentra dónde cortar.
+
+La corrección opera en dos frentes: la división de salida busca \textbf{fronteras secundarias}
+—viñetas, punto y coma, dos puntos— antes de recurrir al corte por palabras, y el recuperador exige
+que todo sub-fragmento \textbf{abra y cierre} en frontera oracional, posponiendo a una reserva los
+que no lo hagan. Resultado: \textbf{0 de 500 fragmentos mal formados}, sin pérdida de cobertura.
+
 \subsection{Justificación}
 
 \begin{itemize}

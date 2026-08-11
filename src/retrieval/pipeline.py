@@ -15,6 +15,30 @@ from ..chunking.chunker import split_for_output
 from ..schema import QueryResult, DocResult, FragmentResult
 
 
+# Cierres validos de oracion. Se admiten los de cierre volado (comillas,
+# parentesis) porque una oracion puede terminar dentro de ellos.
+_CIERRES = ('.', '!', '?', '"', '»', '”', ')', ']', '…')
+# Aperturas validas ademas de mayuscula o digito.
+_APERTURAS = ('¿', '¡', '"', '«', '“', '(', '[', '•', '—')
+
+
+def _cierra_oracion(texto: str) -> bool:
+    return texto.rstrip().endswith(_CIERRES)
+
+
+def _abre_oracion(texto: str) -> bool:
+    """Un fragmento que arranca en minuscula es la cola de una oracion que
+    empezo en otro sitio, y la Seccion 3.3 lo prohibe. Ocurre sobre todo en los
+    PDF escaneados: el OCR no recupera la puntuacion del original, el segmentador
+    no encuentra donde cortar y el troceo cae a mitad de frase."""
+    s = texto.lstrip()
+    return bool(s) and (s[0].isupper() or s[0].isdigit() or s[0] in _APERTURAS)
+
+
+def _bien_formado(texto: str) -> bool:
+    return _abre_oracion(texto) and _cierra_oracion(texto)
+
+
 class Retriever:
     """Orquesta multiples VectorStore (uno por encoder) + encoders + reranker."""
 
@@ -194,7 +218,12 @@ class Retriever:
                 if not key or key in seen_texts:
                     continue
                 seen_texts.add(key)
-                if len(sub.split()) < min_words:
+                # La Seccion 3.3 es un requisito obligatorio: ningun fragmento
+                # puede contener oraciones incompletas. Un sub-fragmento que no
+                # abre y cierra en frontera de oracion es la mitad de una frase
+                # que empieza o termina fuera, asi que se pospone: solo se usa si
+                # no hay suficientes fragmentos bien formados para los 10.
+                if len(sub.split()) < min_words or not _bien_formado(sub):
                     reserva.append((chunk_id, meta["doc_id"], sub))
                     continue
                 fragments.append(FragmentResult(
