@@ -49,11 +49,6 @@ Combinado-Anexos-Certificados.*
 CODEFEST_2026-1.pdf
 Preguntas Frecuentes.xlsx
 
-# Integracion continua: GitHub rechaza el push de .github/workflows/ si el token
-# OAuth no tiene el scope 'workflow'. El archivo existe en local y funciona; para
-# publicarlo basta 'gh auth refresh -s workflow' y retirar esta linea.
-.github/workflows/
-
 # Auxiliares de LaTeX
 *.aux
 *.toc
