@@ -29,9 +29,21 @@ class GraphRetriever:
     def _normalize(name: str) -> str:
         return name.strip().lower()
 
+    # Longitud minima para aceptar una coincidencia parcial. Por debajo, las
+    # siglas cortas casan dentro de palabras sin ninguna relacion: medido sobre
+    # las consultas reales, 'ia' coincide con 'colomb-ia' y 'cas' con cualquier
+    # nodo que contenga esa secuencia.
+    _MIN_PARCIAL = 4
+
     def _match_query_entities(self, query: str, threshold: float = 0.4) -> list[str]:
         """Nodos del grafo que coinciden con entidades de la consulta.
-        Coincidencia por igualdad normalizada o subcadena (robusta a variantes)."""
+
+        Primero igualdad normalizada. Si no la hay, se admite coincidencia
+        parcial —'orbita baja' contra 'orbita baja terrestre'— pero exigiendo que
+        encaje en frontera de palabra y que la entidad tenga cuerpo suficiente,
+        y eligiendo el nodo mas parecido en longitud en vez del primero que
+        aparezca, que dependia del orden de insercion del grafo.
+        """
         ents = self.model.predict_entities(query, self.types, threshold=threshold)
         matched: list[str] = []
         for ent in ents:
@@ -39,12 +51,26 @@ class GraphRetriever:
             if key in self._norm:
                 matched.append(self._norm[key])
                 continue
-            # subcadena: 'orbita baja' ~ 'orbita baja terrestre'
-            for norm_name, original in self._norm.items():
-                if key and (key in norm_name or norm_name in key):
-                    matched.append(original)
-                    break
+            if len(key) < self._MIN_PARCIAL:
+                continue
+            candidatos = [(abs(len(n) - len(key)), original)
+                          for n, original in self._norm.items()
+                          if self._encaja(key, n)]
+            if candidatos:
+                matched.append(min(candidatos)[1])
         return list(dict.fromkeys(matched))
+
+    @staticmethod
+    def _encaja(key: str, nombre: str) -> bool:
+        """Contencion en frontera de palabra, en cualquiera de los dos sentidos."""
+        corto, largo = (key, nombre) if len(key) <= len(nombre) else (nombre, key)
+        if corto not in largo:
+            return False
+        i = largo.index(corto)
+        antes_ok = i == 0 or not largo[i - 1].isalnum()
+        j = i + len(corto)
+        despues_ok = j == len(largo) or not largo[j].isalnum()
+        return antes_ok and despues_ok
 
     def _chunks_of(self, node: str) -> list[str]:
         data = self.graph.nodes.get(node, {})
@@ -53,9 +79,18 @@ class GraphRetriever:
             return [c for c in chunks.split(",") if c]
         return list(chunks)
 
-    def retrieve(self, query: str, threshold: float = 0.4) -> list[tuple[str, float]]:
+    def retrieve(self, query: str, threshold: float = 0.4,
+                 top_k: int = 100) -> list[tuple[str, float]]:
         """Devuelve [(chunk_id, score)] ordenado. score = nº de entidades/relaciones
-        relevantes que respaldan el chunk (evidencia acumulada)."""
+        relevantes que respaldan el chunk (evidencia acumulada).
+
+        El corte en top_k no es cosmetico. La fusion RRF solo mira posiciones, de
+        modo que el primer elemento de cada ranking pesa lo mismo venga de donde
+        venga. Los rankings denso y disperso llegan topados a top_k_faiss; sin un
+        tope equivalente, una consulta con entidades muy conectadas ('colombia',
+        'artificial intelligence') aportaba 10.174 candidatos y ponia una señal de
+        popularidad a competir de igual a igual con la de relevancia semantica.
+        """
         seeds = self._match_query_entities(query, threshold=threshold)
         if not seeds:
             return []
@@ -72,7 +107,8 @@ class GraphRetriever:
                 for cid in self._chunks_of(nb):
                     chunk_score[cid] += 0.5 * w
 
-        return sorted(chunk_score.items(), key=lambda kv: kv[1], reverse=True)
+        ordenado = sorted(chunk_score.items(), key=lambda kv: kv[1], reverse=True)
+        return ordenado[:top_k]
 
     def _edge_weight(self, a: str, b: str) -> float:
         if self.graph.has_edge(a, b):

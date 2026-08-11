@@ -102,6 +102,11 @@ def main() -> None:
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--queries", default=None)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--pausa", type=float, default=0.0,
+                    help="segundos de espera entre consultas. Tres modelos "
+                         "(encoder denso, cross-encoder y NER) comparten la GPU "
+                         "sin descanso; en portatiles esto baja el pico termico "
+                         "a cambio de unos minutos mas")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -127,6 +132,9 @@ def main() -> None:
                     torch.cuda.empty_cache()
             except ImportError:
                 pass
+        if args.pausa:
+            import time
+            time.sleep(args.pausa)
 
     # Validacion estricta antes de escribir (spec 9.3.2)
     errors = validate_resultados(results, expected_lines=len(queries))

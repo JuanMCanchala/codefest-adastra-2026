@@ -244,6 +244,54 @@ conjunto de evaluación** antes de tomar más decisiones.
 0.9446 (BGE-M3 solo) vs 0.9394 (con E5). **Pendiente de re-medir en corpus real** — el proxy ya
 demostró ser mal juez (ver R2).
 
+### R8 — El grafo con peso pleno EXPULSA los mejores documentos (corpus real, 50 consultas)
+
+La primera vez que el recuperador por grafo corrió fuera de los tests fue sobre las 50 consultas
+reales. Encontró dos defectos antes de generar nada:
+
+1. **Sin tope de candidatos.** q005 devolvía **10 174 chunks**, mientras denso y disperso llegan
+   topados a `top_k_faiss: 100`. Entidades muy conectadas (`colombia`, `artificial intelligence`)
+   arrastraban medio corpus.
+2. **Falsos positivos por subcadena.** La coincidencia parcial era `key in nombre` en crudo: `ia`
+   casaba dentro de `colomb-ia`, y q013 emparejaba con un nodo `cas`. Ahora exige frontera de
+   palabra y ≥4 caracteres, y elige el nodo más parecido en longitud en vez del primero según el
+   orden de inserción del grafo. Tras el arreglo, el grafo aporta señal en **44 de 50** consultas.
+
+**El A/B.** Tres corridas completas sobre el mismo índice, comparadas con `scripts/compare_resultados.py`:
+
+| Indicador | Sin grafo | Grafo peso 1,0 | Grafo peso 0,3 |
+|---|---|---|---|
+| Consultas que cambian (vs sin grafo) | — | 27/50 | **2/50** |
+| Solape de documentos | — | 90,0 % | 99,3 % |
+| Coherencia temática | 84,0 % | 83,3 % | **84,0 %** |
+| Documentos distintos en el top-3 | 94 | 93 | 93 |
+| Consultas con un solo observatorio | 18 | 19 | **18** |
+
+Con peso pleno el grafo mueve 27 consultas **y no mejora ni un indicador**. Pero el dato agregado
+escondía lo importante, que solo apareció al mirar fragmento a fragmento:
+
+| Consulta | Peso 1,0 | Peso 0,3 |
+|---|---|---|
+| **q006** (riesgos de IA militar sin doctrina) | `F1-CSET-125`, que aportaba los fragmentos **1, 2 y 3**, **desaparece del top-3 de documentos**; entran gobernanza de la CCW y tecnología de defensa indonesia | Conserva CSET-125 y CSET-104 en el top-3 |
+| **q023** (vulnerabilidades satelitales) | Gana el fragmento del malware *Orbitshade* (r9)… pero expulsa del top-3 a `F2-SWF-124`, que sin grafo era el documento nº 1 **y es de donde sale ese fragmento** | Conserva SWF-124 en el nº 1 |
+
+**Causa raíz.** RRF pondera **solo por posición**: el primer elemento de cada ranking aporta
+1/(k₀+1) venga de donde venga. Eso es correcto entre índices que miden lo mismo, pero el grafo
+ordena por **coocurrencia de entidades** y el denso por **relevancia semántica**. Dándoles el mismo
+voto, una señal de popularidad desplaza aciertos.
+
+**Corrección.** Se añadió peso por ranking a las tres fórmulas de fusión (`rrf`, `combsum`,
+`combmnz`). Con todos los pesos a 1 el resultado es idéntico a la ecuación 7 del enunciado, y hay
+un test que lo verifica. El grafo entra con `graph.fusion_weight: 0.3`: rompe empates y aporta
+evidencia, pero no puede desplazar por sí solo un acierto del denso. Sigue siendo aritmética sobre
+posiciones, sin nada generativo.
+
+**Por qué 0,3 y no un valor intermedio.** Sin juicios de relevancia sobre las 50 consultas solo
+disponemos de indicadores débiles —la coherencia temática ya demostró engañar (ver la limitación
+al final)—. Afinar el peso contra ellos sería sobreajustar a una métrica que no mide lo que se
+evalúa. 0,3 es el valor que preserva la línea base en todas las consultas inspeccionadas y mantiene
+el grafo integrado, que es lo que el bono exige.
+
 ---
 
 ## Validación contra literatura externa
@@ -414,7 +462,21 @@ nuevos se añadieron en minutos en vez de horas. Total: **90 613 fragmentos** (a
 2. **Solo 11 consultas de evaluación.** Diferencias menores a ~3% no son distinguibles del ruido.
 3. **Aún no se barrió el tamaño de chunk en el corpus real** (solo en el proxy, que demostró ser
    mal juez).
-4. **El corpus oficial de ADL aún no está disponible**; habrá que ajustar el mapeo de `fuente` y
-   `fenomeno` a su estructura real.
-5. **GPU intermitente:** `torch.cuda.is_available()` devuelve `False` pese a haber VRAM libre; las
-   últimas corridas fueron en CPU (~20 min por build de 2 601 fragmentos).
+4. **Las 50 consultas reales no traen juicios de relevancia.** No se puede calcular NDCG@10 ni F1@3
+   sobre ellas: ninguna cifra de este documento afirma que una corrida sea *mejor* que otra en la
+   métrica del reto. Solo se compara **cuánto cambia** y se inspeccionan fragmentos a mano.
+5. **La "coherencia temática" es un indicador sesgado — no fiarse de él a solas.** Asume que un
+   documento relevante para una consulta de F1 vive en la carpeta F1. Es falso: SIPRI y CEEEP están
+   archivados bajo F3 y publican precisamente sobre IA militar, así que q001 (IA frente a amenazas
+   NBQR), q003 (IA en operaciones militares) y q007 (sistemas autónomos y DIH) aparecen como
+   "descuadradas" devolviendo documentos **correctos** —SIPRI sobre mando y control nuclear (NC3),
+   CEEEP sobre IA y desinformación en conflictos—. Mide dónde archivó ADL el observatorio, no de
+   qué trata el documento.
+6. **Cinco documentos del inventario no están indexados** y nunca podrán estarlo: cuatro son
+   fotografías sin texto y el quinto es un archivo de dos bytes (`[]`). Cobertura real: 1 821/1 826.
+7. **Aporte del grafo, medido y acotado.** Con peso 0,3 cambia 2 de las 50 consultas (ver R8). Está
+   integrado a la recuperación —requisito del bono— y calibrado con evidencia para no dañar el
+   ranking, pero su contribución positiva demostrable es pequeña.
+8. **Riesgo térmico en portátil.** Con los tres modelos (encoder denso, cross-encoder y NER) en una
+   GPU de 8 GB, `generador.py` alcanzó 83 °C sin pausas. Existe `--pausa` para acotar el pico a
+   costa de unos minutos, y `build_graph.py` tiene `--batch/--pausa/--hilos`.

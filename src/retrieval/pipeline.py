@@ -121,8 +121,11 @@ class Retriever:
     def retrieve(self, query_id: str, query: str) -> QueryResult:
         rcfg = self.cfg["retrieval"]
 
-        # 1) ranking por encoder + fusion RRF (Seccion 8.4)
+        # 1) ranking por encoder + fusion RRF (Seccion 8.4).
+        # Se lleva un peso por ranking: denso y disperso miden relevancia y pesan
+        # 1.0; el grafo mide coocurrencia y entra atenuado (ver 1b).
         rankings = [self._search_one(name, query) for name in self.encoders]
+        pesos = [1.0] * len(rankings)
 
         # 1a) senal lexical (dispersa) del mismo encoder: recupera coincidencias
         # exactas de siglas y nombres propios que el vector denso diluye.
@@ -134,15 +137,25 @@ class Retriever:
             sparse_ranking = sparse.search(q_weights, top_k=rcfg["top_k_faiss"])
             if sparse_ranking:
                 rankings.append(sparse_ranking)
+                pesos.append(1.0)
 
         # 1b) grafo de conocimiento como indice adicional (Seccion 8.5, bonus)
         gcfg = self.cfg.get("graph", {})
         if self.graph_retriever and gcfg.get("fuse_into_retrieval"):
-            graph_ranking = self.graph_retriever.retrieve(query)
+            # Mismo tope que los rankings denso y disperso: RRF pondera por
+            # posicion, asi que rankings de longitudes muy distintas no compiten
+            # en igualdad de condiciones.
+            graph_ranking = self.graph_retriever.retrieve(query, top_k=rcfg["top_k_faiss"])
             if graph_ranking:
                 rankings.append(graph_ranking)
+                # El grafo ordena por coocurrencia de entidades, no por
+                # relevancia semantica. Con peso 1.0 su primer resultado desplaza
+                # al del recuperador denso: medido sobre las 50 consultas, en
+                # q006 expulsaba del top-10 los tres fragmentos que respondian la
+                # pregunta. Atenuado, aporta evidencia sin poder mandar solo.
+                pesos.append(float(gcfg.get("fusion_weight", 0.3)))
 
-        fused = fuse(rankings, method=rcfg["fusion"], rrf_k=rcfg["rrf_k"])
+        fused = fuse(rankings, method=rcfg["fusion"], rrf_k=rcfg["rrf_k"], weights=pesos)
 
         # indice chunk_id -> metadata (del primer store; los chunk_id son globales)
         meta_by_id = {}

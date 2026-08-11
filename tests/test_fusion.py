@@ -94,3 +94,42 @@ def test_fragmentos_no_se_repiten_en_una_consulta():
     textos = [f.text for f in res.fragments]
     assert len(textos) == len(set(textos)), "hay fragmentos repetidos"
     assert len(textos) == 2, "deberia quedar 1 de los duplicados + el distinto"
+
+
+# --------------------------------------------------------------------------- #
+#  Pesos por ranking (correccion R8: el grafo no debe mandar solo)
+# --------------------------------------------------------------------------- #
+def test_rrf_sin_pesos_es_la_ecuacion_7():
+    """Con pesos a 1 el resultado debe ser identico al RRF del enunciado."""
+    from src.retrieval.fusion import rrf
+    a = [("c1", 0.9), ("c2", 0.8)]
+    b = [("c3", 0.7), ("c1", 0.6)]
+    assert rrf([a, b]) == rrf([a, b], weights=[1.0, 1.0])
+
+
+def test_ranking_atenuado_no_desplaza_al_de_peso_pleno():
+    """El primero de un ranking atenuado no puede superar al primero de uno pleno."""
+    from src.retrieval.fusion import rrf
+    denso = [("bueno", 0.9)]
+    grafo = [("popular", 5.0)]
+    fusionado = dict(rrf([denso, grafo], weights=[1.0, 0.3]))
+    assert fusionado["bueno"] > fusionado["popular"]
+    # con peso pleno quedarian empatados, que es justo el problema medido
+    empate = dict(rrf([denso, grafo], weights=[1.0, 1.0]))
+    assert empate["bueno"] == empate["popular"]
+
+
+def test_ranking_atenuado_si_rompe_empates():
+    """Atenuado no es lo mismo que ignorado: sigue aportando evidencia."""
+    from src.retrieval.fusion import rrf
+    denso = [("a", 0.9), ("b", 0.9)]
+    grafo = [("b", 1.0)]
+    fusionado = dict(rrf([denso, grafo], weights=[1.0, 0.3]))
+    assert fusionado["b"] > fusionado["a"]
+
+
+def test_pesos_mal_dimensionados_fallan():
+    from src.retrieval.fusion import rrf
+    import pytest
+    with pytest.raises(ValueError):
+        rrf([[("c1", 1.0)], [("c2", 1.0)]], weights=[1.0])

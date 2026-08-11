@@ -82,3 +82,7 @@ graph:
   ner_model: "urchade/gliner_multi-v2.1"
   entity_types: ["persona", "organizacion", "pais", "tecnologia", "evento", "lugar"]
   fuse_into_retrieval: true
+  # Peso del ranking del grafo dentro de la fusion RRF. Denso y disperso pesan
+  # 1.0. El grafo ordena por coocurrencia de entidades, no por relevancia, y con
+  # peso pleno desplazaba aciertos del recuperador denso (ver BITACORA, R8).
+  fusion_weight: 0.3
