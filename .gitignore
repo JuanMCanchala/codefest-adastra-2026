@@ -3,14 +3,26 @@ data/raw/
 data/processed/
 # corpus de prueba descargado (PDFs de terceros, no redistribuir)
 data/corpus/
+# CORPUS OFICIAL DE ADL: 3 GB de documentos de terceros. No se redistribuye; el
+# jurado ya lo tiene. Solo viajan las 50 consultas y el inventario, que son lo
+# necesario para reproducir la entrega.
+data/adl/corpus/
+data/adl/Extracto_Preguntas_50_v2.pdf
+OneDrive_*.zip
 entrega/base_vectorial/
 entrega_smoke/
 entrega_bge/
 entrega_multi/
+entrega_corpus/
 *.faiss
 *.jsonl
 !eval_interno/**/*.jsonl
 !tests/**/*.jsonl
+# resultados.jsonl ES el entregable principal (Seccion 1.4): tiene que viajar en
+# el repositorio. La regla generica *.jsonl lo estaba excluyendo.
+!entrega/resultados.jsonl
+# Las 50 consultas de ADL, necesarias para reproducir la entrega.
+!data/adl/queries.jsonl
 
 # Modelos descargados
 models/
@@ -35,6 +47,7 @@ venv/
 # PDFs de contexto y documento oficial del reto (no redistribuir en repo publico)
 Combinado-Anexos-Certificados.*
 CODEFEST_2026-1.pdf
+Preguntas Frecuentes.xlsx
 
 # Auxiliares de LaTeX
 *.aux

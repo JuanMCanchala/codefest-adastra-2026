@@ -3,10 +3,11 @@
 Usa el indice FAISS, lee el archivo de consultas y genera resultados.jsonl.
 Objetivo: REPRODUCIR los resultados (spec: si no se reproducen, se excluye).
 
-Uso:
-    python generador.py --config config.yaml \
-        --queries data/queries.jsonl \
-        --out entrega/resultados.jsonl
+Vive en entrega/ porque asi lo pide la estructura de directorios de la Seccion
+1.4, pero se ejecuta desde la raiz del repositorio, donde estan config.adl.yaml
+y el paquete src/:
+
+    python entrega/generador.py --config config.adl.yaml
 
 Determinismo: semillas fijas + orden de consultas q001..q050. Los encoders y el
 indice FAISS producen los mismos vectores/rankings dada la misma entrada.
@@ -16,12 +17,18 @@ from __future__ import annotations
 import argparse
 import os
 import random
+import sys
 from pathlib import Path
 
 import yaml
 
-from src.utils.io import read_jsonl, write_jsonl
-from src.schema import validate_resultados
+# Al invocar 'python entrega/generador.py', Python coloca entrega/ en sys.path,
+# no la raiz, y el paquete src/ no seria importable. Se añade explicitamente para
+# que el script funcione se lance desde donde se lance.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.io import read_jsonl, write_jsonl   # noqa: E402
+from src.schema import validate_resultados         # noqa: E402
 
 
 def set_determinism(seed: int) -> None:

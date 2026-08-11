@@ -159,7 +159,8 @@ reranker cross-encoder (ver §7.3), aislado tras un interruptor.
 | **`src/graph/retrieve.py`** | `GraphRetriever`: entidades de la consulta → chunks (nodo + vecinos) |
 | **`src/eval/metrics.py`** | NDCG@10, F1@3, Conteo de Borda — **idénticas a la spec** |
 | **`src/eval/harness.py`** | Arnés de evaluación: corre el retriever sobre el eval set y mide |
-| `generador.py` | **Entregable 4**: índice + consultas → `resultados.jsonl` (determinista) |
+| `entrega/generador.py` | **Entregable 4**: índice + consultas → `resultados.jsonl` (determinista). `--pausa` acota el pico térmico |
+| `scripts/compare_resultados.py` | A/B entre dos `resultados.jsonl` de configuraciones distintas |
 | `scripts/build_index.py` | Pipeline de indexación completo |
 | `scripts/extract_corpus.py` | Extracción + limpieza en paralelo, con caché en disco (reanudable) |
 | `scripts/append_docs.py` | **Indexación incremental**: anexa al índice los documentos que falten, sin reconstruir la base (los ids internos se asignan por orden de inserción, así que anexar al final no altera ninguno) |
@@ -332,9 +333,9 @@ python scripts/make_eval_corpus.py
 python scripts/build_index.py --config config.corpus.yaml
 python scripts/eval_corpus.py  --config config.corpus.yaml --with-rerank
 
-# Generar el entregable
-python generador.py --config config.yaml \
-    --queries data/queries.jsonl --out entrega/resultados.jsonl
+# Generar el entregable (generador.py vive en entrega/ por la estructura de la
+# Seccion 1.4, pero se ejecuta desde la raiz, donde estan config y src/)
+python entrega/generador.py --config config.adl.yaml --pausa 2
 
 # Informe técnico (PDF)
 cd docs && xelatex informe_tecnico.tex

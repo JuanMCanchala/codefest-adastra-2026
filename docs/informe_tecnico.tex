@@ -252,7 +252,56 @@ esquema de fusión (Sección 8.5): se extraen las entidades de la consulta con e
 recuperan los chunks vinculados a esas entidades y a sus \textbf{vecinos de primer orden}, se
 puntúan por evidencia acumulada y el ranking resultante se fusiona con los vectoriales mediante
 RRF. Aporta una señal que los embeddings sólo capturan de forma implícita: \textbf{relaciones
-explícitas entre entidades}.
+explícitas entre entidades}. Sobre el corpus completo resultan \textbf{104\,293 entidades y
+561\,522 relaciones}, podadas a \textbf{26\,961 nodos y 97\,182 aristas} descartando las
+co-ocurrencias vistas una sola vez.
+
+\subsection{El grafo con peso pleno degrada la recuperación}
+
+Integrarlo no basta: hay que comprobar que ayuda. Medimos \textbf{tres corridas completas} sobre el
+mismo índice —sin grafo, con grafo a peso pleno y con grafo atenuado— comparadas con
+\texttt{scripts/compare\_resultados.py}.
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+& \textbf{Sin grafo} & \textbf{Peso 1,0} & \textbf{Peso 0,3} \\
+\midrule
+Consultas que cambian (vs. sin grafo) & --- & 27/50 & \textbf{2/50} \\
+Solape de documentos                  & --- & 90,0\,\% & 99,3\,\% \\
+Coherencia temática                   & 84,0\,\% & 83,3\,\% & \textbf{84,0\,\%} \\
+Documentos distintos en el top-3      & 94 & 93 & 93 \\
+Consultas con un solo observatorio    & 18 & 19 & \textbf{18} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Con peso pleno el grafo altera 27 de las 50 consultas \textbf{sin mejorar un solo indicador}. El
+dato agregado, sin embargo, escondía lo relevante, que apareció al inspeccionar fragmento a
+fragmento: en \texttt{q006} (riesgos de la IA militar sin doctrina) el documento
+\texttt{F1-CSET-125}, que aportaba los fragmentos en posiciones 1, 2 y 3, \textbf{desaparecía del
+top-3 de documentos}, sustituido por gobernanza de la CCW y tecnología de defensa indonesia. En
+\texttt{q023} el grafo sí incorporaba un fragmento excelente —el malware \emph{Orbitshade}
+explotando debilidades de autenticación en protocolos de \emph{uplink}— pero a costa de expulsar
+del top-3 al documento \texttt{F2-SWF-124}, que era el primero sin grafo \textbf{y del que procede
+ese mismo fragmento}.
+
+\textbf{La causa es la fusión, no el grafo.} RRF pondera \textbf{únicamente por posición}: el primer
+elemento de cada ranking aporta $1/(k_0+1)$ con independencia de su origen. Eso es correcto entre
+índices que miden lo mismo, pero el grafo ordena por \textbf{co-ocurrencia de entidades} y el
+recuperador denso por \textbf{relevancia semántica}. Con el mismo voto, una señal de popularidad
+desplaza aciertos.
+
+\textbf{Corrección.} Se generalizaron las tres fórmulas de fusión a \textbf{pesos por ranking},
+$s(c) = \sum_j w_j / (k_0 + r_j(c))$. Con $w_j = 1$ el resultado es idéntico a la ecuación~7 del
+enunciado, propiedad verificada por test. El grafo entra con $w = 0{,}3$: rompe empates y aporta
+evidencia, pero no puede por sí solo desplazar un acierto del recuperador denso. Sigue siendo
+aritmética sobre posiciones, sin ningún modelo generativo.
+
+No se exploraron pesos intermedios de forma deliberada. Sin juicios de relevancia sobre las 50
+consultas solo disponemos de indicadores débiles, y afinar contra ellos sería sobreajustar a una
+métrica que no es la que se evalúa.
 
 \section{Metodología de evaluación y resultados}
 
@@ -409,8 +458,32 @@ persistido y del archivo de consultas. El determinismo se asegura fijando las se
 con separadores fijos y codificación UTF-8 explícita. Toda la configuración —chunking, encoders,
 tipo de índice, fusión, agregación— reside en un único \texttt{config.yaml}, de modo que cualquier
 resultado reportado es rastreable a una configuración concreta. El proyecto cuenta con
-\textbf{42 pruebas automatizadas} que cubren las métricas, el validador de esquema, el chunker, las
+\textbf{61 pruebas automatizadas} que cubren las métricas, el validador de esquema, el chunker, las
 estrategias de fusión, la limpieza y el recuperador basado en grafo.
+
+\section{Limitaciones}
+
+\textbf{Las 50 consultas de ADL no traen juicios de relevancia.} No es posible calcular NDCG@10 ni
+F1@3 sobre ellas, de modo que ninguna cifra de este informe afirma que una configuración sea
+\emph{mejor} que otra en la métrica del reto: se compara cuánto cambia cada corrida y se inspeccionan
+fragmentos a mano.
+
+\textbf{La coherencia temática es un indicador sesgado.} Lo usamos por ser observable, pero asume
+que un documento relevante para una consulta del Fenómeno~1 reside en la carpeta del Fenómeno~1, lo
+cual es falso: SIPRI y CEEEP están archivados bajo el Fenómeno~3 y publican precisamente sobre IA
+militar. Por eso \texttt{q001} (IA frente a amenazas NBQR), \texttt{q003} (IA en operaciones
+militares) y \texttt{q007} (sistemas autónomos y DIH) figuran como desalineadas mientras devuelven
+documentos \textbf{correctos}: SIPRI sobre mando y control nuclear (NC3) y CEEEP sobre IA y
+desinformación en conflictos. El indicador mide dónde archivó ADL el observatorio, no de qué trata
+el documento.
+
+\textbf{Cinco documentos del inventario no están indexados} y no podrán estarlo: cuatro son
+fotografías sin texto —el OCR se ejecuta y devuelve vacío correctamente— y el quinto es un archivo
+de dos bytes. La cobertura efectiva es de 1\,821 sobre 1\,826.
+
+\textbf{La contribución positiva demostrable del grafo es pequeña}: con el peso calibrado altera 2
+de las 50 consultas. Está integrado a la recuperación, como exige el bono, y ajustado con evidencia
+para no degradar el ranking, pero no reclamamos para él una ganancia que no hemos podido medir.
 
 \section{Conclusiones}
 
@@ -426,9 +499,17 @@ la agregación por suma— sólo emergieron al evaluar sobre documentos reales, 
 Y dos defectos que habrían costado puntos fueron detectados por las pruebas y el arnés, no por
 inspección visual.
 
+Esa misma lección se repitió con el componente bonus. El grafo de conocimiento estaba construido y
+podría haberse entregado como tal; medirlo reveló que, integrado con peso pleno, expulsaba del
+top-3 los documentos que respondían la consulta. El valor no estuvo en construirlo, sino en
+descubrir \textbf{por qué} degradaba —la fusión daba el mismo voto a dos señales de naturaleza
+distinta— y corregir la fusión en lugar de descartar el componente.
+
 Los componentes de mayor riesgo regulatorio quedan aislados tras interruptores de configuración,
-de modo que el sistema puede ajustarse a la interpretación del jurado sin tocar código. Nuestra
-recomendación, sujeta a esa consulta, es mantener el reranking activo: es la diferencia medida más
-grande entre una entrada correcta y una competitiva.
+de modo que el sistema puede ajustarse a la interpretación del jurado sin tocar código. La consulta
+que elevamos sobre el reranking fue respondida por el organizador —\emph{«sí está permitido
+re-ranking con cross-encoders; la restricción aplica es para arquitecturas decoders»}—, de modo que
+se mantiene activo: es la diferencia medida más grande entre una entrada correcta y una
+competitiva.
 
 \end{document}

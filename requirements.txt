@@ -1,41 +1,47 @@
 # =============================================================================
 #  CODEFEST AD ASTRA 2026 - Etapa 1
-#  Recomendado: Python 3.11 en venv dedicado (.venv311) para la capa ML.
-#  El core (metrics/chunking/schema) corre en 3.11-3.13.
+#  Verificado en Python 3.13.14 con GPU RTX 4060 Laptop (8 GB).
+#
+#  IMPORTANTE: instalar torch CUDA ANTES que el resto y comprobarlo DESPUES.
+#  docling y gliner arrastran la build de CPU de torch y la sustituyen en
+#  silencio; 'pip install torch==2.13.0' responde "already satisfied" aunque la
+#  instalada sea +cpu. Tras instalar todo:
+#      python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+#      -> debe imprimir  2.13.0+cu126 True
+#  Si no, reinstalar con:
+#      pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cu126 \
+#          --force-reinstall --no-deps
 # =============================================================================
 
-# --- Core / utilidades (funciona en 3.11-3.13) ---
+# --- Core / utilidades ---
 numpy>=1.26
 pyyaml>=6.0
 tqdm>=4.66
-orjson>=3.9
 
-# --- Segmentacion de oraciones multilingue (chunking) ---
+# --- Segmentacion de oraciones ---
+# El segmentador propio (basado en reglas) es el predeterminado: pysbd tardaba
+# 8 horas sobre el corpus completo. Se conserva como alternativa verificable.
 pysbd>=0.3.4
 
-# --- Deteccion de idioma / limpieza de texto ---
-ftfy>=6.1
-fasttext-langdetect>=1.0.5    # o langdetect>=1.0.9 como fallback
-
 # --- Extraccion multiformato ---
-# PDF (extraccion de vanguardia: layout + tablas). Requiere Python <=3.11/3.12.
-docling>=2.0                  # IBM, MIT. Alternativa SOTA para PDF/tablas
-pymupdf>=1.24                 # fallback rapido de texto PDF
-trafilatura>=1.8             # HTML: limpieza de boilerplate
+pymupdf>=1.24                 # backend de PDF por defecto (rapido)
+docling>=2.0                  # IBM, MIT. Mayor fidelidad en PDF, ~60 s/documento
+trafilatura>=2.0              # HTML: limpieza de boilerplate
 pandas>=2.1                   # CSV/XLSX
 openpyxl>=3.1                 # XLSX
-paddleocr>=2.7               # OCR multilingue (imagenes/infografias)
-# pyosmium>=3.6              # PBF (mapas) - activar cuando haya .pbf reales
+easyocr>=1.7                  # OCR (CRAFT + CRNN, no generativo) sobre GPU
+mapbox-vector-tile>=2.2       # .pbf del corpus: son vector tiles, NO OpenStreetMap
+# pyosmium>=3.6               # respaldo por si algun .pbf si fuera de OSM
 
-# --- Encoders + indice vectorial (GPU) ---
-torch>=2.2                    # instalar build CUDA segun tu GPU
-sentence-transformers>=3.0
-FlagEmbedding>=1.2            # BGE-M3 (dense+sparse+colbert) y bge-reranker
+# --- Encoders + indice vectorial ---
+torch>=2.13                   # instalar la build CUDA (ver nota de arriba)
+sentence-transformers>=5.0    # cross-encoder del reranking
+FlagEmbedding>=1.2            # BGE-M3: denso + pesos lexicos en una sola pasada
 transformers>=4.40
-faiss-cpu>=1.8                # usar faiss-gpu si hay build disponible en tu OS
+faiss-cpu>=1.8
 
 # --- Grafo de conocimiento (bonus) ---
-gliner>=0.2.5                 # NER multilingue zero-shot (MIT)
+gliner>=0.2.5                 # NER multilingue zero-shot (MIT), arquitectura encoder
 networkx>=3.2                 # grafo -> graphml
 
 # --- Tests ---
