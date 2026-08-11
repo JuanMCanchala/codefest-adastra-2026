@@ -26,9 +26,17 @@ entrega/
       grafo.graphml         BONUS: 26 961 entidades, 97 182 relaciones
 ```
 
-> **La base vectorial pesa 679 MB y no viaja en el repositorio**: `index.faiss` (371 MB) y
-> `metadata.jsonl` (199 MB) superan el límite de 100 MB por archivo de GitHub. Se entrega aparte
-> (ver *Reproducción desde cero* para reconstruirla, o el enlace del formulario de entrega).
+> **La base vectorial se descarga aparte.** `index.faiss` (354 MB) y `metadata.jsonl` (190 MB)
+> superan el límite de 100 MB por archivo de GitHub, así que viaja como *release*:
+>
+> **https://github.com/JuanMCanchala/codefest-adastra-2026/releases/tag/base-vectorial-v1**
+>
+> ```bash
+> unzip base_vectorial.zip -d entrega/     # 507 MB, md5 adf39b0dd4aee9835d19aa5371d86ed3
+> python scripts/check_entrega.py --entrega entrega
+> ```
+>
+> Alternativamente puede reconstruirse desde el corpus (ver *Reproducción desde cero*).
 
 ## Documentación
 
@@ -92,13 +100,14 @@ Versiones verificadas: `faiss-cpu 1.14.3`, `torch 2.13.0+cu126`, `sentence-trans
 
 ## Reproducir la entrega
 
-Con la base vectorial ya construida, basta con:
+Con la base vectorial ya colocada en `entrega/base_vectorial/` (ver enlace arriba):
 
 ```bash
 python entrega/generador.py --config config.adl.yaml
 ```
 
-Regenera `entrega/resultados.jsonl` byte a byte. Añadir `--pausa 2` en portátiles: los tres modelos
+Regenera `entrega/resultados.jsonl` **byte a byte**: dos corridas completas producen el mismo
+archivo, con MD5 `04156f98fd7ff52077edfe8e12f01146`. Añadir `--pausa 2` en portátiles: los tres modelos
 (encoder denso, cross-encoder y NER) comparten la GPU sin descanso y la corrida alcanza 83 °C.
 
 ## Reproducción desde cero
